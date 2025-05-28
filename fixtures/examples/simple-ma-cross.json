@@ -1,0 +1,13 @@
+{
+  "entry": {
+    "condition": "ma(5) > ma(20)",
+    "timing": "next_open"
+  },
+  "exit": {
+    "condition": "ma(5) < ma(20)",
+    "timing": "current_close"
+  },
+  "universe": ["0000.T"],
+  "cash": 1000000,
+  "slippage_bp": 3
+}

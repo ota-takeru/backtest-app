@@ -48,7 +48,13 @@ export default defineViteConfig({
       // ワーカー用のプラグイン (もしあれば)
     ],
     rollupOptions: {
-      // ワーカー用のRollupオプション (もしあれば)
+      output: {
+        // ハッシュを含まない固定のファイル名で出力
+        entryFileNames: `worker.js`, // worker.js として出力
+        // chunkFileNames と assetFileNames も必要に応じて設定
+        chunkFileNames: `assets/worker-chunk-[hash].js`,
+        assetFileNames: `assets/worker-asset-[hash].[ext]`,
+      },
     },
   },
   // Vitest configuration

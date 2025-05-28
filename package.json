@@ -11,7 +11,8 @@
     "test:bench": "vitest bench run",
     "test:e2e": "playwright test --project=webkit",
     "size:snapshot": "rollup-plugin-size-snapshot",
-    "test:ci": "npm run test && npm run test:e2e && npm run size:snapshot"
+    "test:ci": "npm run test && npm run test:e2e && npm run size:snapshot",
+    "generate:dummy-arrow": "node scripts/generate-dummy-arrow.js"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.29.0",

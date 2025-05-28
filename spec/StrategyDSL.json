@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["entry", "exit", "universe"],
+  "properties": {
+    "entry": {
+      "type": "object",
+      "required": ["condition", "timing"],
+      "properties": {
+        "condition": { "type": "string", "description": "BOOL_EXPR" },
+        "timing": { "enum": ["next_open", "close"] }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": ["condition", "timing"],
+      "properties": {
+        "condition": { "type": "string", "description": "BOOL_EXPR" },
+        "timing": { "enum": ["current_close"] }
+      }
+    },
+    "universe": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9]{4}\\.T$" },
+      "minItems": 1
+    },
+    "cash": { "type": "integer", "default": 1000000 },
+    "slippage_bp": { "type": "number", "default": 3 }
+  }
+}
