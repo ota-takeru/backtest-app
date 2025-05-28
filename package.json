@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run --coverage",
+    "test:bench": "vitest bench run",
+    "test:e2e": "playwright test --project=webkit",
+    "size:snapshot": "rollup-plugin-size-snapshot",
+    "test:ci": "npm run test && npm run test:e2e && npm run size:snapshot"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.29.0",
@@ -23,14 +28,25 @@
     "zod-to-json-schema": "3.22.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.15.23",
     "@types/react": "18.2.21",
     "@types/react-dom": "18.2.7",
     "@types/uuid": "9.0.1",
     "@vitejs/plugin-react": "^4.5.0",
+    "@vitest/coverage-v8": "^1.6.0",
     "autoprefixer": "^10.4.21",
+    "fast-check": "^3.17.1",
+    "happy-dom": "^14.12.0",
+    "playwright": "^1.44.0",
     "postcss": "^8.5.3",
+    "rollup-plugin-size-snapshot": "^0.12.0",
     "tailwindcss": "^4.1.7",
     "typescript": "5.4.5",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">="
   }
 }

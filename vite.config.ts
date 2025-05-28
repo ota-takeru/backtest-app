@@ -1,9 +1,30 @@
-import { defineConfig } from "vite";
+/// <reference types="vitest" />
+import {
+  defineConfig as defineViteConfig,
+  UserConfig as ViteUserConfig,
+} from "vite";
+import {
+  defineConfig as defineVitestConfig,
+  UserConfig as VitestUserConfig,
+} from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 
-export default defineConfig({
+const vitestConfig: VitestUserConfig = {
+  test: {
+    globals: true,
+    environment: "happy-dom", // or 'jsdom'
+    include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    benchmark: {
+      include: ["src/**/*.{bench,benchmark}.?(c|m)[jt]s?(x)"],
+      reporters: ["default"],
+      outputFile: "bench/report.json",
+    },
+  },
+};
+
+export default defineViteConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -30,4 +51,7 @@ export default defineConfig({
       // ワーカー用のRollupオプション (もしあれば)
     },
   },
-});
+  // Vitest configuration
+  // @ts-ignore
+  test: vitestConfig.test,
+} as ViteUserConfig & { test: VitestUserConfig["test"] });

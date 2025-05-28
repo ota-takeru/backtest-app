@@ -240,10 +240,8 @@ interface BacktestResponse {
 ---
 
 ## 10. セキュリティ & 品質保証
-
-1. **SQL インジェクション対策** — DSL→SQL 変換では `IDENT`/`NAME` を全てホワイトリスト検証し、`NUMBER` は `parseFloat` で cast。
-2. **UDF 単体テスト** — IPC → UDF → IPC で数値精度許容誤差 ±1e‑8。
-3. **E2E テスト** — Playwright で _DSL JSON → Equity Curve_ を 5 秒以内に確認。
+テストに関しては以下の仕様を参照してください。
+testing-spec.duckdb-wasm-client-v0.1.md
 
 ---
 
