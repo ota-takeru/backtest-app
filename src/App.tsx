@@ -49,9 +49,9 @@ async function convertOhlcToArrow(
   }
 
   const ohlcData = data[firstCode];
-  
+
   // Convert to Arrow Table
-  const dates = ohlcData.date.map(d => new Date(d));
+  const dates = ohlcData.date.map((d) => new Date(d));
   const opens = ohlcData.open;
   const highs = ohlcData.high;
   const lows = ohlcData.low;
@@ -61,29 +61,29 @@ async function convertOhlcToArrow(
   // Create Arrow vectors
   const dateVector = makeVector({
     type: new DateDay(),
-    data: dates.map(d => Math.floor(d.getTime() / (24 * 60 * 60 * 1000))), // Convert to days since epoch
+    data: dates.map((d) => Math.floor(d.getTime() / (24 * 60 * 60 * 1000))), // Convert to days since epoch
   });
-  
+
   const openVector = makeVector({
     type: new Float64(),
     data: opens,
   });
-  
+
   const highVector = makeVector({
     type: new Float64(),
     data: highs,
   });
-  
+
   const lowVector = makeVector({
     type: new Float64(),
     data: lows,
   });
-  
+
   const closeVector = makeVector({
     type: new Float64(),
     data: closes,
   });
-  
+
   const volumeVector = makeVector({
     type: new Int32(),
     data: volumes,
@@ -424,6 +424,13 @@ export default function App() {
       },
     };
 
+    console.log("[App] Sending backtest request:", {
+      req_id,
+      dsl_ast: runConfig.dsl,
+      arrow_length: new Uint8Array(arrowBuffer).length,
+      params: request.params,
+    });
+
     worker.postMessage(request, [arrowBuffer]);
   }, [runConfig, worker, ohlcData, handleProgressUpdate]);
 
@@ -517,7 +524,7 @@ export default function App() {
             <h2 className="text-xl font-semibold">2. 戦略の定義</h2>
             <StrategyEditor
               onStrategySubmit={handleStrategyValidated}
-              apiKey={apiKeys.openai}
+              apiKeys={apiKeys}
             />
             {showDsl && validatedDsl && (
               <div className="mt-4 p-3 bg-gray-100 rounded">

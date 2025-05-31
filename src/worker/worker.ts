@@ -1,219 +1,175 @@
-import * as duckdb from "@duckdb/duckdb-wasm";
+/**
+ * リファクタリング後のWorkerメインファイル
+ * 責任分離と依存性注入によってテスタブルな設計に変更
+ */
+
 import {
   BacktestRequest,
-  // WorkerMessage, // Worker自身は送信側なので、受信メッセージ型はBacktestRequest
-  BacktestResponse, // 送信する結果の型
-  TradeRow,
-  StrategyAST, // StrategyDSLからStrategyASTに変更
-  WorkerErrorMessage, // エラーメッセージ型を追加
-  WorkerProgressMessage, // 進捗メッセージ型
-  WorkerResultMessage, // 結果メッセージ型
-} from "../types"; // インポートパスを修正
-// import { parseBoolExpr, astToSqlPredicate } from "../lib/dsl-compiler"; // これは新しいAST->SQLコンパイラに置き換えられる想定
-import { astToSql, AstToSqlError } from "./astToSql"; // 新しいAST->SQLコンパイラをインポート
+  BacktestResponse,
+  WorkerErrorMessage,
+  WorkerProgressMessage,
+  WorkerResultMessage,
+} from "../types";
 
-const logger = new duckdb.ConsoleLogger();
-let mainBundle: duckdb.DuckDBBundle | null = null;
-let db: duckdb.AsyncDuckDB | null = null;
+// リファクタリングされたモジュール群
+import { WorkerLogger, LogLevel } from "./logger";
+import { ErrorHandler, ErrorFactory } from "./errorHandler";
+import { createWorkerConfig } from "./config";
+import { DuckDBManager } from "./duckDBManager";
+import { ArrowDataLoader } from "./arrowDataLoader";
+import { BacktestProcessor } from "./backtestProcessor";
+import { ProgressReporter } from "./progressReporter";
 
-async function initializeDBAndRegisterOHLC(
-  req_id: string, // req_idをエラー通知のために渡す
-  arrowBuffer: Uint8Array
-): Promise<duckdb.AsyncDuckDBConnection> {
-  try {
-    if (!mainBundle) {
-      mainBundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
-    }
-    if (!db) {
-      const worker = await duckdb.createWorker(mainBundle!.mainWorker!);
-      db = new duckdb.AsyncDuckDB(logger, worker);
-      await db.instantiate(mainBundle!.mainModule, mainBundle!.pthreadWorker);
-      await db.open({ query: { castBigIntToDouble: true } });
-      console.log("DuckDB-WASM initialized.");
-    }
-    const conn = await db.connect();
-    await db.registerFileBuffer("input_arrow.arrow", arrowBuffer);
-    await conn.query(
-      "CREATE OR REPLACE TABLE ohlc_data AS SELECT * FROM 'input_arrow.arrow';"
+/**
+ * メインのWorkerクラス
+ * 各モジュールを組み合わせてバックテスト処理を実行
+ */
+class BacktestWorker {
+  public readonly logger: WorkerLogger; // publicに変更
+  private errorHandler: ErrorHandler;
+  private duckDBManager: DuckDBManager;
+  private arrowDataLoader: ArrowDataLoader;
+  private backtestProcessor: BacktestProcessor;
+  private config = createWorkerConfig();
+
+  constructor() {
+    this.logger = new WorkerLogger("BacktestWorker", LogLevel.INFO);
+    this.errorHandler = new ErrorHandler(this.logger);
+    
+    this.duckDBManager = new DuckDBManager(
+      this.config.duckdb,
+      this.logger,
+      this.errorHandler
     );
-    return conn;
-  } catch (e: any) {
-    console.error("[Worker] DB Initialization/Registration Error:", e);
-    // E0008 Worker初期化失敗 に近いが、より汎用的な E1005 を使用
-    // REQUIREMENTS.md §9 に合わせ、E3001 または E3002 を使用
-    const errorCode =
-      e.message?.includes("Arrow") || e.message?.includes("registerFileBuffer")
-        ? "E3002"
-        : "E3001";
-    self.postMessage({
-      type: "error",
-      req_id,
-      message: `${errorCode}: DuckDB初期化/データ登録エラー: ${e.message}`,
-    } as WorkerErrorMessage);
-    throw e; // エラーを再スローして処理を中断
+    
+    this.arrowDataLoader = new ArrowDataLoader(
+      this.config.arrow,
+      this.duckDBManager,
+      this.logger,
+      this.errorHandler
+    );
+    
+    this.backtestProcessor = new BacktestProcessor(
+      this.duckDBManager,
+      this.logger,
+      this.errorHandler
+    );
+  }
+
+  async processRequest(request: BacktestRequest): Promise<void> {
+    const { req_id, dsl_ast, arrow, params } = request;
+    
+    const progressReporter = new ProgressReporter(req_id, (message) =>
+      self.postMessage(message)
+    );
+
+    let conn: any = null;
+
+    try {
+      progressReporter.start();
+
+      // 入力検証
+      this.validateInput(request);
+
+      // 1. DuckDB初期化
+      await this.duckDBManager.initialize();
+      conn = await this.duckDBManager.createConnection();
+      await this.duckDBManager.testCapabilities(conn);
+
+      // 2. Arrowデータ読み込み
+      await this.arrowDataLoader.loadArrowData(conn, arrow);
+      await this.arrowDataLoader.verifyTable(conn);
+      progressReporter.dbInitialized();
+
+      // 3. バックテスト実行
+      progressReporter.sqlExecuting();
+      const results = await this.backtestProcessor.executeBacktest(
+        conn,
+        dsl_ast,
+        params
+      );
+      progressReporter.sqlCompleted();
+
+      // 4. 結果検証と送信
+      const validationIssues = this.backtestProcessor.validateResults({
+        metrics: results.metrics,
+        equityCurve: results.equityCurve,
+        trades: results.trades,
+      });
+      const responseData: BacktestResponse = {
+        req_id,
+        metrics: results.metrics,
+        equityCurve: results.equityCurve,
+        trades: results.trades,
+        warnings: [...results.warnings, ...validationIssues],
+      };
+
+      progressReporter.resultsProcessed();
+
+      self.postMessage({
+        type: "result",
+        ...responseData,
+      } as WorkerResultMessage);
+
+      progressReporter.completed();
+    } catch (error: any) {
+      this.logger.error("Request processing failed", error);
+      this.errorHandler.postError(
+        req_id,
+        this.errorHandler.handleError(error, "REQUEST_PROCESSING"),
+        (message) => self.postMessage(message)
+      );
+    } finally {
+      if (conn) {
+        try {
+          await conn.close();
+        } catch (closeErr: any) {
+          this.logger.warn("Error closing DB connection", closeErr.message);
+        }
+      }
+    }
+  }
+
+  private validateInput(request: BacktestRequest): void {
+    if (!request.dsl_ast) {
+      throw this.errorHandler.createError(
+        ErrorFactory.missingInput("戦略定義(dsl_ast)")
+      );
+    }
+    if (!request.arrow) {
+      throw this.errorHandler.createError(
+        ErrorFactory.missingInput("Arrowデータ(arrow)")
+      );
+    }
+    if (!request.params) {
+      throw this.errorHandler.createError(
+        ErrorFactory.missingInput("パラメータ(params)")
+      );
+    }
   }
 }
 
+// Workerインスタンス作成と初期化
+const worker = new BacktestWorker();
+
+// メッセージハンドラー
 self.onmessage = async (event: MessageEvent<BacktestRequest>) => {
-  const { req_id, dsl_ast, arrow, params } = event.data;
-  let conn: duckdb.AsyncDuckDBConnection | null = null;
-
-  const postProgress = (progress: number, message: string) => {
-    self.postMessage({
-      type: "progress",
-      req_id,
-      progress,
-      message,
-    } as WorkerProgressMessage);
-  };
-
-  const postError = (
-    errorCode: string,
-    errorMessage: string,
-    details?: string
-  ) => {
+  try {
+    worker.logger.info("Received message", {
+      req_id: event.data.req_id,
+      hasArrow: !!event.data.arrow,
+      hasDslAst: !!event.data.dsl_ast,
+    });
+    
+    await worker.processRequest(event.data);
+  } catch (error: any) {
+    worker.logger.error("Unhandled error in onmessage", error);
     self.postMessage({
       type: "error",
-      req_id,
-      message: `${errorCode}: ${errorMessage}${details ? " - " + details : ""}`,
+      req_id: event.data?.req_id || "unknown",
+      message: `E3001: Worker内で予期せぬエラーが発生しました - ${error.message}`,
     } as WorkerErrorMessage);
-  };
-
-  try {
-    postProgress(10, "バックテスト処理開始...");
-
-    if (!dsl_ast) {
-      // postError("E1005", "戦略定義(dsl_ast)が提供されていません。");
-      postError("E3001", "戦略定義(dsl_ast)が提供されていません。");
-      return;
-    }
-    if (!arrow) {
-      // postError("E1005", "Arrowデータ(arrow)が提供されていません。");
-      postError("E3001", "Arrowデータ(arrow)が提供されていません。");
-      return;
-    }
-
-    conn = await initializeDBAndRegisterOHLC(req_id, arrow);
-    postProgress(20, "DB初期化・データ登録完了。");
-
-    // 1. AST -> SQL 変換 (E1002)
-    let main_sql_query: string;
-    try {
-      main_sql_query = astToSql(
-        dsl_ast,
-        params.initCash,
-        params.slippageBp,
-        "ohlc_data"
-      );
-      console.log("[Worker] Generated SQL:", main_sql_query);
-      postProgress(40, "SQL生成完了。");
-    } catch (e: any) {
-      if (e instanceof AstToSqlError) {
-        postError(
-          "E1002",
-          "戦略のSQL変換に失敗しました",
-          e.message + (e.details ? ` (${JSON.stringify(e.details)})` : "")
-        );
-      } else {
-        postError(
-          "E1002",
-          "戦略のSQL変換中に予期せぬエラーが発生しました",
-          e.message
-        );
-      }
-      return;
-    }
-
-    // 2. DuckDB SQL実行 (E3001)
-    let rawResults: any[];
-    try {
-      console.log("[Worker] Executing main backtest SQL...");
-      const queryResult = await conn.query(main_sql_query); // main_sql_query が結果を返す想定
-      rawResults = queryResult.toArray().map((row) => row.toJSON()); // 結果をJSONオブジェクトの配列に
-
-      postProgress(70, "バックテストSQL実行完了。");
-    } catch (e: any) {
-      // postError(
-      //   "E1003",
-      //   "バックテストSQLの実行に失敗しました",
-      //   e.message + (e.detail ? ` (${e.detail.toString()})` : "")
-      // );
-      postError(
-        "E3001",
-        "バックテストSQLの実行に失敗しました (DuckDB実行時エラー)",
-        e.message + (e.detail ? ` (${e.detail.toString()})` : "")
-      );
-      return;
-    }
-
-    // 3. 結果データ処理 (E3001の一部として、またはより具体的なメッセージで)
-    let responseData: BacktestResponse;
-    try {
-      if (!rawResults || rawResults.length === 0) {
-        throw new Error("SQL実行結果が空です。");
-      }
-
-      const metrics = rawResults.find((r) => r.type === "metrics") || {
-        cagr: null,
-        maxDd: null,
-        sharpe: null,
-      };
-      const equityCurve = rawResults
-        .filter((r) => r.type === "equity_point")
-        .map((r) => ({ date: r.date, equity: r.equity }));
-      const trades = rawResults
-        .filter((r) => r.type === "trade_log")
-        .map((r) => ({
-          date: r.date,
-          side: r.side,
-          price: r.price,
-          quantity: r.quantity,
-          pnl: r.pnl,
-        }));
-      const warnings = rawResults
-        .filter((r) => r.type === "warning")
-        .map((r) => r.message);
-
-      responseData = {
-        req_id,
-        metrics: metrics.cagr === undefined ? null : metrics,
-        equityCurve,
-        trades,
-        warnings: warnings.length > 0 ? warnings : undefined,
-      };
-      postProgress(90, "結果データ処理完了。");
-    } catch (e: any) {
-      // postError(
-      //   "E1004",
-      //   "バックテスト結果の処理中にエラーが発生しました",
-      //   e.message
-      // );
-      postError(
-        "E3001", // E1004 は廃止し、E3001 に統合 (Worker内部処理エラー)
-        "バックテスト結果の解析・処理中にエラーが発生しました",
-        e.message
-      );
-      return;
-    }
-
-    self.postMessage({
-      type: "result",
-      ...responseData,
-    } as WorkerResultMessage);
-  } catch (e: any) {
-    console.error("[Worker] Unhandled error in onmessage:", e);
-    // postError("E1005", "Worker内で不明なエラーが発生しました", e.message);
-    postError("E3001", "Worker内で予期せぬエラーが発生しました", e.message);
-  } finally {
-    if (conn) {
-      try {
-        await conn.close();
-      } catch (closeErr: any) {
-        console.warn("[Worker] Error closing DB connection:", closeErr.message);
-      }
-    }
-    postProgress(100, "バックテスト処理終了。");
   }
 };
 
-console.log("Worker script (with SQL pipeline structure) loaded");
+console.log("BacktestWorker (リファクタリング版) loaded successfully");

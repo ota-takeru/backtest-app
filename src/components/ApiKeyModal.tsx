@@ -35,9 +35,17 @@ export function ApiKeyModal({ isOpen, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" data-testid="api-key-modal-overlay">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg space-y-4" data-testid="api-key-modal">
-        <h2 className="text-xl font-semibold" data-testid="api-key-modal-title">APIキー設定</h2>
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      data-testid="api-key-modal-overlay"
+    >
+      <div
+        className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg space-y-4"
+        data-testid="api-key-modal"
+      >
+        <h2 className="text-xl font-semibold" data-testid="api-key-modal-title">
+          APIキー設定
+        </h2>
 
         <div>
           <label className="block font-medium mb-1">

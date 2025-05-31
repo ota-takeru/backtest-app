@@ -21,14 +21,20 @@ const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
   };
 
   return (
-    <div className="grid grid-cols-3 gap-4 p-4 bg-gray-100 rounded-lg">
-      <div>
+    <div
+      className="grid grid-cols-3 gap-4 p-4 bg-gray-100 rounded-lg"
+      data-testid="metrics-display"
+    >
+      <div data-testid="cagr-metric">
         <h3 className="text-sm font-medium text-gray-500">CAGR</h3>
-        <p className="mt-1 text-3xl font-semibold text-gray-900">
+        <p
+          className="mt-1 text-3xl font-semibold text-gray-900"
+          data-testid="cagr-value"
+        >
           {formatPercentage(metrics.cagr)}
         </p>
       </div>
-      <div>
+      <div data-testid="max-drawdown-metric">
         <h3 className="text-sm font-medium text-gray-500">最大ドローダウン</h3>
         <p
           className={`mt-1 text-3xl font-semibold ${
@@ -36,13 +42,17 @@ const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
               ? "text-red-600"
               : "text-gray-900"
           }`}
+          data-testid="max-drawdown-value"
         >
           {formatPercentage(metrics.maxDd)}
         </p>
       </div>
-      <div>
+      <div data-testid="sharpe-ratio-metric">
         <h3 className="text-sm font-medium text-gray-500">シャープレシオ</h3>
-        <p className="mt-1 text-3xl font-semibold text-gray-900">
+        <p
+          className="mt-1 text-3xl font-semibold text-gray-900"
+          data-testid="sharpe-ratio-value"
+        >
           {formatSharpe(metrics.sharpe)}
         </p>
       </div>

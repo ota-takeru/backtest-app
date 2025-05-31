@@ -10,11 +10,18 @@ const WarningsList: React.FC<WarningsListProps> = ({ warnings }) => {
   }
 
   return (
-    <div className="p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700">
-      <h3 className="font-bold">警告</h3>
-      <ul className="list-disc list-inside">
+    <div
+      className="p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700"
+      data-testid="warnings-list"
+    >
+      <h3 className="font-bold" data-testid="warnings-list-title">
+        警告
+      </h3>
+      <ul className="list-disc list-inside" data-testid="warnings-list-items">
         {warnings.map((warning, index) => (
-          <li key={index}>{warning}</li>
+          <li key={index} data-testid={`warning-item-${index}`}>
+            {warning}
+          </li>
         ))}
       </ul>
     </div>

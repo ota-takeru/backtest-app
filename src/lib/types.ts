@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/consistent-type-definitions */
 
+import { StrategyAST } from "../types";
+
 // REQUIREMENTS.md §3.1 JSON Schema を参照
 export interface StrategyDSL {
   // meta, data_source は REQUIREMENTS.md に明記されていないが、既存のものを一旦残す
@@ -46,13 +48,12 @@ export interface OHLCFrameJSON {
 // REQUIREMENTS.md §5 を参照
 export interface BacktestRequest {
   req_id: string; // Workerとの通信でリクエストとレスポンスを紐付けるID
-  sql: string; // コンパイルされたSQLクエリ全体 (CTEやWINDOW句を含む)
+  dsl_ast: StrategyAST; // JSON-AST-DSL (changed from sql to dsl_ast)
   arrow: Uint8Array; // Arrow IPC形式のテーブル: ohlc (date, open, ...)
   params: {
     initCash: number;
     slippageBp: number;
   };
-  dsl?: StrategyDSL; // DSLもWorkerに渡すか検討。SQL生成に使ったDSLをログやデバッグ用に含めることは考えられる。REQUIREMENTS.mdには明記なし。一旦オプショナルで。
 }
 
 // REQUIREMENTS.md §5 を参照

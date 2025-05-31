@@ -1,4 +1,11 @@
-import { StrategyAST, AnyNode, FuncNode, BinaryNode, LogicalNode, ValueNode } from '../types';
+import {
+  StrategyAST,
+  AnyNode,
+  FuncNode,
+  BinaryNode,
+  LogicalNode,
+  ValueNode,
+} from "../types";
 
 export class AstToSqlError extends Error {
   constructor(message: string, public details?: any) {
@@ -8,42 +15,77 @@ export class AstToSqlError extends Error {
 }
 
 function generateFunctionCTE(funcNode: FuncNode, ohlcTable: string): string {
-  const args = funcNode.args.map(arg => typeof arg === 'number' ? arg : arg.value).join('_');
-  const cteName = `${funcNode.name}_${args}`.replace(/\./g, ''); // ドットを削除
+  // 引数から適切な文字列を生成（数値と識別子の値のみ）
+  const args = funcNode.args
+    .map((arg) => {
+      if (typeof arg === "number") {
+        return arg.toString();
+      } else if (typeof arg === "object" && arg.value) {
+        return arg.value;
+      } else {
+        return "unknown";
+      }
+    })
+    .join("_");
+  const cteName = `${funcNode.name}_${args}`.replace(/\./g, ""); // ドットを削除
+
+  console.log(
+    "[AST] Generating CTE for function:",
+    funcNode.name,
+    "with args:",
+    funcNode.args
+  );
 
   switch (funcNode.name) {
-    case 'ma':
-      if (funcNode.args.length !== 2 || typeof funcNode.args[0] !== 'object' || funcNode.args[0].kind !== 'IDENT' || typeof funcNode.args[1] !== 'number') {
-        throw new AstToSqlError('Invalid MA arguments', funcNode.args);
+    case "ma":
+      if (
+        funcNode.args.length !== 2 ||
+        typeof funcNode.args[0] !== "number" ||
+        typeof funcNode.args[1] !== "object" ||
+        funcNode.args[1].kind !== "IDENT"
+      ) {
+        throw new AstToSqlError("Invalid MA arguments", funcNode.args);
       }
-      const maCol = funcNode.args[0].value;
-      const maPeriod = funcNode.args[1] as number;
+      const maPeriod = funcNode.args[0] as number;
+      const maCol = funcNode.args[1].value;
       return `${cteName} AS (
-  SELECT date, AVG(${maCol}) OVER (ORDER BY date ROWS BETWEEN ${maPeriod - 1} PRECEDING AND CURRENT ROW) AS value
+  SELECT date, AVG(${maCol}) OVER (ORDER BY date ROWS BETWEEN ${
+        maPeriod - 1
+      } PRECEDING AND CURRENT ROW) AS value
   FROM ${ohlcTable}
 )`;
 
-    case 'rsi':
-      if (funcNode.args.length !== 1 || typeof funcNode.args[0] !== 'number') {
-        throw new AstToSqlError('Invalid RSI arguments', funcNode.args);
+    case "rsi":
+      if (
+        funcNode.args.length !== 2 ||
+        typeof funcNode.args[0] !== "number" ||
+        typeof funcNode.args[1] !== "object" ||
+        funcNode.args[1].kind !== "IDENT"
+      ) {
+        throw new AstToSqlError("Invalid RSI arguments", funcNode.args);
       }
       const rsiPeriod = funcNode.args[0] as number;
+      const rsiCol = funcNode.args[1].value;
       return `${cteName}_diffs AS (
-  SELECT date, close - LAG(close) OVER (ORDER BY date) AS diff
+  SELECT date, ${rsiCol} - LAG(${rsiCol}) OVER (ORDER BY date) AS diff
   FROM ${ohlcTable}
 ),
 ${cteName} AS (
   SELECT 
     date, 
-    100.0 - (100.0 / (1.0 + SUM(CASE WHEN diff > 0 THEN diff ELSE 0 END) OVER (ORDER BY date ROWS BETWEEN ${rsiPeriod - 1} PRECEDING AND CURRENT ROW) / 
-                           NULLIF(SUM(CASE WHEN diff < 0 THEN ABS(diff) ELSE 0 END) OVER (ORDER BY date ROWS BETWEEN ${rsiPeriod - 1} PRECEDING AND CURRENT ROW), 0)))
+    100.0 - (100.0 / (1.0 + SUM(CASE WHEN diff > 0 THEN diff ELSE 0 END) OVER (ORDER BY date ROWS BETWEEN ${
+      rsiPeriod - 1
+    } PRECEDING AND CURRENT ROW) / 
+                           NULLIF(SUM(CASE WHEN diff < 0 THEN ABS(diff) ELSE 0 END) OVER (ORDER BY date ROWS BETWEEN ${
+                             rsiPeriod - 1
+                           } PRECEDING AND CURRENT ROW), 0)))
     AS value
   FROM ${cteName}_diffs
 )`;
 
-    case 'atr':
-      if (funcNode.args.length !== 1 || typeof funcNode.args[0] !== 'number') {
-        throw new AstToSqlError('Invalid ATR arguments', funcNode.args);
+    case "atr":
+      if (funcNode.args.length !== 1 || typeof funcNode.args[0] !== "number") {
+        throw new AstToSqlError("Invalid ATR arguments", funcNode.args);
       }
       const atrPeriod = funcNode.args[0] as number;
       return `${cteName}_tr AS (
@@ -57,7 +99,9 @@ ${cteName} AS (
   FROM ${ohlcTable}
 ),
 ${cteName} AS (
-  SELECT date, AVG(tr) OVER (ORDER BY date ROWS BETWEEN ${atrPeriod - 1} PRECEDING AND CURRENT ROW) AS value
+  SELECT date, AVG(tr) OVER (ORDER BY date ROWS BETWEEN ${
+    atrPeriod - 1
+  } PRECEDING AND CURRENT ROW) AS value
   FROM ${cteName}_tr
 )`;
 
@@ -66,61 +110,74 @@ ${cteName} AS (
   }
 }
 
-function nodeToSqlPredicate(node: AnyNode, functionCteMap: Map<string, FuncNode>): string {
+function nodeToSqlPredicate(
+  node: AnyNode,
+  functionCteMap: Map<string, FuncNode>
+): string {
+  console.log("[AST] Converting node:", JSON.stringify(node, null, 2));
+
   switch (node.type) {
-    case 'Logical':
+    case "Logical":
       const leftLogic = nodeToSqlPredicate(node.left, functionCteMap);
       const rightLogic = nodeToSqlPredicate(node.right, functionCteMap);
       return `(${leftLogic} ${node.op} ${rightLogic})`;
 
-    case 'Binary':
+    case "Binary":
       const leftBinary = nodeToSqlPredicate(node.left, functionCteMap);
       const rightBinary = nodeToSqlPredicate(node.right, functionCteMap);
       return `(${leftBinary} ${node.op} ${rightBinary})`;
 
-    case 'Func':
-      const funcArgs = node.args.map(arg => typeof arg === 'number' ? arg : arg.value).join('_');
-      const funcCteName = `${node.name}_${funcArgs}`.replace(/\./g, '');
+    case "Func":
+      const funcArgs = node.args
+        .map((arg) => (typeof arg === "number" ? arg : arg.value))
+        .join("_");
+      const funcCteName = `${node.name}_${funcArgs}`.replace(/\./g, "");
+      console.log("[AST] Function CTE name:", funcCteName);
       if (!functionCteMap.has(funcCteName)) {
         functionCteMap.set(funcCteName, node);
       }
       return `${funcCteName}.value`;
 
-    case 'Value':
-      if (node.kind === 'NUMBER') {
+    case "Value":
+      if (node.kind === "NUMBER") {
         return node.value.toString();
       } else {
-        return node.value as string; // IDENT like 'close', 'open' etc.
+        // IDENT like 'close', 'open' etc. - need to reference base table
+        return `base.${node.value}`;
       }
 
     default:
-      throw new AstToSqlError('Unknown AST node type');
+      throw new AstToSqlError("Unknown AST node type");
   }
 }
 
-export function astToSql(ast: StrategyAST, initCash: number, slippageBp: number, ohlcTable: string): string {
+export function astToSql(
+  ast: StrategyAST,
+  initCash: number,
+  slippageBp: number,
+  ohlcTable: string
+): string {
   const functionCteMap = new Map<string, FuncNode>();
 
   // Generate SQL predicates for entry and exit, this will populate functionCteMap
   const entryPredicate = nodeToSqlPredicate(ast.entry.ast, functionCteMap);
   const exitPredicate = nodeToSqlPredicate(ast.exit.ast, functionCteMap);
-  
+
   // Build CTEs
   const cteList: string[] = [];
-  functionCteMap.forEach(funcNode => {
+  functionCteMap.forEach((funcNode) => {
     cteList.push(generateFunctionCTE(funcNode, ohlcTable));
   });
 
-  let ctes = '';
+  let ctes = "";
   if (cteList.length > 0) {
-    ctes = `WITH\n${cteList.join(',\n')},\n`;
+    ctes = `WITH\n${cteList.join(",\n")},\n`;
   }
 
   // Build the main backtesting SQL with simplified logic for initial testing
   const finalQuery = `
 ${ctes}
--- Simplified backtesting pipeline for initial implementation
-signals AS (
+${ctes ? "" : "WITH "}signals AS (
   SELECT 
     date,
     close,
@@ -130,10 +187,16 @@ signals AS (
     ${entryPredicate} as entry_signal,
     ${exitPredicate} as exit_signal
   FROM ${ohlcTable} base
-  ${cteList.length > 0 ? cteList.map((_, idx) => {
-    const funcName = Array.from(functionCteMap.keys())[idx];
-    return `LEFT JOIN ${funcName} ON base.date = ${funcName}.date`;
-  }).join('\n  ') : ''}
+  ${
+    cteList.length > 0
+      ? cteList
+          .map((_, idx) => {
+            const funcName = Array.from(functionCteMap.keys())[idx];
+            return `LEFT JOIN ${funcName} ON base.date = ${funcName}.date`;
+          })
+          .join("\n  ")
+      : ""
+  }
   ORDER BY date
 ),
 
@@ -199,4 +262,4 @@ SELECT 'trade_log' as type,
 `;
 
   return finalQuery;
-} 
+}

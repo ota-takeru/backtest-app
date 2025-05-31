@@ -95,7 +95,7 @@ export const strategyASTSchema = z.object({
   exit: strategyRuleSchema.refine((data) => data.timing === "current_close", {
     message: "Exit timing must be 'current_close'",
   }),
-  universe: z.array(z.string().regex(/^[0-9]{4}\\.T$/)).min(1),
+  universe: z.array(z.string().regex(/^[0-9]{4}\.T$/)).min(1),
   cash: z.number().int().optional().default(1000000),
   slippage_bp: z.number().optional().default(3),
 });

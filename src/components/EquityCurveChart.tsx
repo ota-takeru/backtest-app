@@ -18,7 +18,10 @@ interface EquityCurveChartProps {
 const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ equityCurve }) => {
   if (!equityCurve || equityCurve.length === 0) {
     return (
-      <p className="text-center text-gray-500">
+      <p
+        className="text-center text-gray-500"
+        data-testid="equity-curve-no-data"
+      >
         エクイティカーブデータがありません。
       </p>
     );
@@ -31,7 +34,10 @@ const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ equityCurve }) => {
   const yDomainMax = Math.ceil(yMax * 1.05);
 
   return (
-    <div style={{ width: "100%", height: 400 }}>
+    <div
+      style={{ width: "100%", height: 400 }}
+      data-testid="equity-curve-chart"
+    >
       <ResponsiveContainer>
         <LineChart
           data={equityCurve}
@@ -49,11 +55,13 @@ const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ equityCurve }) => {
             textAnchor="end"
             height={70}
             tick={{ fontSize: 10 }}
+            data-testid="equity-curve-xaxis"
           />
           <YAxis
             domain={[yDomainMin, yDomainMax]}
             tickFormatter={(tick) => tick.toLocaleString()}
             tick={{ fontSize: 10 }}
+            data-testid="equity-curve-yaxis"
           />
           <Tooltip formatter={(value: number) => value.toLocaleString()} />
           <Legend />
@@ -64,6 +72,7 @@ const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ equityCurve }) => {
             activeDot={{ r: 8 }}
             dot={{ r: 2 }}
             name="資産"
+            data-testid="equity-curve-line"
           />
         </LineChart>
       </ResponsiveContainer>

@@ -2,13 +2,14 @@ import { useState } from "react";
 import { buildStrategyFromPrompt as buildWithOpenAI } from "../lib/openaiClient";
 import { buildStrategyFromPrompt as buildWithGemini } from "../lib/geminiClient";
 import { StrategyAST } from "../types";
+import { ApiKeys } from "../hooks/useApiKeys";
 
 interface Props {
   onStrategySubmit: (dsl: StrategyAST) => void;
-  apiKey?: string;
+  apiKeys: ApiKeys;
 }
 
-export function StrategyEditor({ onStrategySubmit, apiKey }: Props) {
+export function StrategyEditor({ onStrategySubmit, apiKeys }: Props) {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -21,8 +22,19 @@ export function StrategyEditor({ onStrategySubmit, apiKey }: Props) {
       setError("戦略を入力してください。");
       return;
     }
-    if (!apiKey && provider === "openai") {
-      setError("OpenAI APIキーが設定されていません。");
+
+    // プロバイダーに応じたAPIキーチェック
+    if (provider === "openai" && !apiKeys.openai) {
+      setError(
+        "OpenAI APIキーが設定されていません。UIのAPIキー設定から設定してください。"
+      );
+      return;
+    }
+
+    if (provider === "gemini" && !apiKeys.gemini) {
+      setError(
+        "Gemini APIキーが設定されていません。UIのAPIキー設定から設定してください。"
+      );
       return;
     }
 
@@ -33,8 +45,8 @@ export function StrategyEditor({ onStrategySubmit, apiKey }: Props) {
     try {
       const res =
         provider === "gemini"
-          ? await buildWithGemini(input, apiKey || "")
-          : await buildWithOpenAI(input, apiKey || "");
+          ? await buildWithGemini(input, apiKeys.gemini)
+          : await buildWithOpenAI(input, apiKeys.openai);
 
       if (res.ok && res.strategy) {
         onStrategySubmit(res.strategy as StrategyAST);
@@ -49,8 +61,14 @@ export function StrategyEditor({ onStrategySubmit, apiKey }: Props) {
   };
 
   return (
-    <div className="bg-white shadow sm:rounded-lg p-6" data-testid="strategy-editor">
-      <div className="flex items-center justify-between mb-4">
+    <div
+      className="bg-white shadow sm:rounded-lg p-6"
+      data-testid="strategy-editor"
+    >
+      <div
+        className="flex items-center justify-between mb-4"
+        data-testid="llm-provider-section"
+      >
         <label
           htmlFor="llm-provider"
           className="block text-sm font-medium text-gray-700"
@@ -62,6 +80,7 @@ export function StrategyEditor({ onStrategySubmit, apiKey }: Props) {
           value={provider}
           onChange={(e) => setProvider(e.target.value)}
           className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+          data-testid="llm-provider-select"
         >
           <option value="openai">OpenAI (GPT-4 etc.)</option>
           <option value="gemini">Google Gemini</option>
@@ -81,7 +100,11 @@ export function StrategyEditor({ onStrategySubmit, apiKey }: Props) {
         7203.T)、初期資金、スリッページなども含めるとより正確な戦略が生成されます。
       </div>
 
-      {error && <p className="text-sm text-red-600 my-2" data-testid="strategy-error">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-600 my-2" data-testid="strategy-error">
+          {error}
+        </p>
+      )}
 
       <div className="flex justify-end mt-4">
         <button

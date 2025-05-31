@@ -82,9 +82,15 @@ export function StockPeriodSelector({ onSubmit }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" data-testid="stock-period-selector">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-4"
+      data-testid="stock-period-selector"
+    >
       <div>
-        <h3 className="font-medium mb-2" data-testid="stock-selection-title">銘柄選択</h3>
+        <h3 className="font-medium mb-2" data-testid="stock-selection-title">
+          銘柄選択
+        </h3>
         <div className="flex space-x-2">
           <input
             type="text"

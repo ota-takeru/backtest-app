@@ -16,8 +16,29 @@ const vitestConfig: VitestUserConfig = {
   test: {
     globals: true,
     environment: "happy-dom", // or 'jsdom'
-    include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)", "tests/integration/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    exclude: ["tests/e2e/**", "tests/example.spec.ts", "tests/worker.spec.ts"],
     reporters: "verbose",
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html', 'lcov'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.{test,spec}.{ts,tsx}',
+        'src/**/*.d.ts',
+        'src/main.tsx',
+        'src/env.d.ts'
+      ],
+      thresholds: {
+        global: {
+          statements: 85,
+          branches: 85,
+          functions: 85,
+          lines: 85
+        }
+      }
+    },
     benchmark: {
       include: ["src/**/*.{bench,benchmark}.?(c|m)[jt]s?(x)"],
       reporters: ["default"],

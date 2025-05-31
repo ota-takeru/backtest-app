@@ -8,10 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run --coverage",
-    "test:bench": "vitest bench run",
-    "test:e2e": "playwright test --project=webkit",
+    "test:unit": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:bench": "vitest bench --config vitest.benchmark.config.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:performance": "playwright test tests/e2e/performance.spec.ts",
     "size:snapshot": "rollup-plugin-size-snapshot",
-    "test:ci": "npm run test && npm run test:e2e && npm run size:snapshot",
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:bench && npm run test:e2e",
+    "test:ci": "npm run test:all && npm run size:snapshot",
     "generate:dummy-arrow": "node scripts/generate-dummy-arrow.js"
   },
   "dependencies": {
@@ -40,6 +44,7 @@
     "autoprefixer": "^10.4.21",
     "fast-check": "^3.23.2",
     "happy-dom": "^14.12.0",
+    "jsdom": "^24.1.3",
     "playwright": "^1.44.0",
     "postcss": "^8.5.3",
     "rollup-plugin-size-snapshot": "^0.12.0",
@@ -50,6 +55,6 @@
     "vitest": "^1.6.0"
   },
   "engines": {
-    "node": ">="
+    "node": ">=18.0.0"
   }
 }
