@@ -12,9 +12,10 @@ describe("Bundle Size Tests", () => {
       const indexHtml = readFileSync(join(distPath, "index.html"), "utf-8");
 
       // Extract all JS bundle file names from index.html
-      const jsFileMatches = indexHtml.match(/src="\/assets\/([^"]+\.js)"/g) || [];
-      const jsFileNames = jsFileMatches.map(match => 
-        match.replace(/src="\/assets\/([^"]+\.js)"/, '$1')
+      const jsFileMatches =
+        indexHtml.match(/src="\/assets\/([^"]+\.js)"/g) || [];
+      const jsFileNames = jsFileMatches.map((match) =>
+        match.replace(/src="\/assets\/([^"]+\.js)"/, "$1")
       );
 
       if (jsFileNames.length === 0) {
@@ -34,7 +35,7 @@ describe("Bundle Size Tests", () => {
 
         const jsContent = readFileSync(jsFilePath);
         const gzippedContent = gzipSync(jsContent);
-        
+
         totalGzipSize += gzippedContent.length;
         totalUncompressedSize += jsContent.length;
       }
@@ -43,7 +44,11 @@ describe("Bundle Size Tests", () => {
       const totalUncompressedSizeMB = totalUncompressedSize / (1024 * 1024);
       const compressionRatio = totalUncompressedSize / totalGzipSize;
 
-      console.log(`Total bundle size (uncompressed): ${totalUncompressedSizeMB.toFixed(2)} MB`);
+      console.log(
+        `Total bundle size (uncompressed): ${totalUncompressedSizeMB.toFixed(
+          2
+        )} MB`
+      );
       console.log(`Total bundle size (gzip): ${totalGzipSizeMB.toFixed(2)} MB`);
       console.log(`Compression ratio: ${compressionRatio.toFixed(2)}x`);
 

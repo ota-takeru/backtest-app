@@ -78,10 +78,16 @@ export class BacktestProcessor {
         exit: dsl_ast.exit,
       });
 
-      const sqlQuery = astToSql(dsl_ast, params.initCash, params.slippageBp, tableName);
-      
+      const sqlQuery = astToSql(
+        dsl_ast,
+        params.initCash,
+        params.slippageBp,
+        tableName
+      );
+
       this.logger.debug("Generated SQL query", {
-        query: sqlQuery.substring(0, 500) + (sqlQuery.length > 500 ? "..." : ""),
+        query:
+          sqlQuery.substring(0, 500) + (sqlQuery.length > 500 ? "..." : ""),
         fullLength: sqlQuery.length,
       });
 
@@ -108,7 +114,7 @@ export class BacktestProcessor {
     try {
       this.logger.info("Executing backtest SQL query");
       const results = await this.duckDBManager.executeQuery(conn, sqlQuery);
-      
+
       this.logger.info("SQL execution completed", {
         resultCount: results.length,
         sampleResults: results.slice(0, 3),
@@ -139,11 +145,13 @@ export class BacktestProcessor {
 
       // メトリクスの抽出
       const metricsData = rawResults.find((r) => r.type === "metrics");
-      const metrics: BacktestResponse["metrics"] = metricsData ? {
-        cagr: metricsData.cagr ?? null,
-        maxDd: metricsData.maxDd ?? null,
-        sharpe: metricsData.sharpe ?? null,
-      } : null;
+      const metrics: BacktestResponse["metrics"] = metricsData
+        ? {
+            cagr: metricsData.cagr ?? null,
+            maxDd: metricsData.maxDd ?? null,
+            sharpe: metricsData.sharpe ?? null,
+          }
+        : null;
 
       // エクイティカーブの抽出
       const equityCurve = rawResults

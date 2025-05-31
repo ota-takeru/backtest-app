@@ -35,20 +35,20 @@ class BacktestWorker {
   constructor() {
     this.logger = new WorkerLogger("BacktestWorker", LogLevel.INFO);
     this.errorHandler = new ErrorHandler(this.logger);
-    
+
     this.duckDBManager = new DuckDBManager(
       this.config.duckdb,
       this.logger,
       this.errorHandler
     );
-    
+
     this.arrowDataLoader = new ArrowDataLoader(
       this.config.arrow,
       this.duckDBManager,
       this.logger,
       this.errorHandler
     );
-    
+
     this.backtestProcessor = new BacktestProcessor(
       this.duckDBManager,
       this.logger,
@@ -58,7 +58,7 @@ class BacktestWorker {
 
   async processRequest(request: BacktestRequest): Promise<void> {
     const { req_id, dsl_ast, arrow, params } = request;
-    
+
     const progressReporter = new ProgressReporter(req_id, (message) =>
       self.postMessage(message)
     );
@@ -160,7 +160,7 @@ self.onmessage = async (event: MessageEvent<BacktestRequest>) => {
       hasArrow: !!event.data.arrow,
       hasDslAst: !!event.data.dsl_ast,
     });
-    
+
     await worker.processRequest(event.data);
   } catch (error: any) {
     worker.logger.error("Unhandled error in onmessage", error);

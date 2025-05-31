@@ -3,46 +3,52 @@ import * as duckdb from "@duckdb/duckdb-wasm";
 import { StrategyAST } from "../types/index.js";
 import { compileDslToSql } from "./dslCompiler.js";
 import { validateAst } from "./dsl-validator.js";
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
 describe("Backtest Performance Benchmarks", () => {
   // Load test strategies once
   const simpleMAStrategy = JSON.parse(
-    fs.readFileSync(path.join(process.cwd(), 'fixtures/examples/simple-ma-cross.json'), 'utf-8')
-  );
-  
-  const rsiStrategy = JSON.parse(
-    fs.readFileSync(path.join(process.cwd(), 'fixtures/examples/dummy_rsi_strategy.json'), 'utf-8')
+    fs.readFileSync(
+      path.join(process.cwd(), "fixtures/examples/simple-ma-cross.json"),
+      "utf-8"
+    )
   );
 
-  bench('AST Validation - Simple MA Strategy', () => {
+  const rsiStrategy = JSON.parse(
+    fs.readFileSync(
+      path.join(process.cwd(), "fixtures/examples/dummy_rsi_strategy.json"),
+      "utf-8"
+    )
+  );
+
+  bench("AST Validation - Simple MA Strategy", () => {
     validateAst(simpleMAStrategy);
   });
 
-  bench('AST Validation - RSI Strategy', () => {
+  bench("AST Validation - RSI Strategy", () => {
     validateAst(rsiStrategy);
   });
 
-  bench('SQL Compilation - Simple MA Strategy', () => {
-    compileDslToSql(simpleMAStrategy, 'bench_test_ma');
+  bench("SQL Compilation - Simple MA Strategy", () => {
+    compileDslToSql(simpleMAStrategy, "bench_test_ma");
   });
 
-  bench('SQL Compilation - RSI Strategy', () => {
-    compileDslToSql(rsiStrategy, 'bench_test_rsi');
+  bench("SQL Compilation - RSI Strategy", () => {
+    compileDslToSql(rsiStrategy, "bench_test_rsi");
   });
 
-  bench('Complete DSL Processing Pipeline - MA Strategy', () => {
+  bench("Complete DSL Processing Pipeline - MA Strategy", () => {
     const validation = validateAst(simpleMAStrategy);
     if (validation.success) {
-      compileDslToSql(simpleMAStrategy, 'bench_pipeline_ma');
+      compileDslToSql(simpleMAStrategy, "bench_pipeline_ma");
     }
   });
 
-  bench('Complete DSL Processing Pipeline - RSI Strategy', () => {
+  bench("Complete DSL Processing Pipeline - RSI Strategy", () => {
     const validation = validateAst(rsiStrategy);
     if (validation.success) {
-      compileDslToSql(rsiStrategy, 'bench_pipeline_rsi');
+      compileDslToSql(rsiStrategy, "bench_pipeline_rsi");
     }
   });
 

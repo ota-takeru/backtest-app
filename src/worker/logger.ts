@@ -21,8 +21,11 @@ export interface LogEntry {
 export class WorkerLogger {
   private logLevel: LogLevel = LogLevel.INFO;
   private logs: LogEntry[] = [];
-  
-  constructor(private context: string = "Worker", level: LogLevel = LogLevel.INFO) {
+
+  constructor(
+    private context: string = "Worker",
+    level: LogLevel = LogLevel.INFO
+  ) {
     this.logLevel = level;
   }
 

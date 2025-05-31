@@ -29,7 +29,9 @@ export class DuckDBManager {
 
       if (!this.mainBundle) {
         this.logger.info("Loading DuckDB bundle...");
-        this.mainBundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+        this.mainBundle = await duckdb.selectBundle(
+          duckdb.getJsDelivrBundles()
+        );
         this.logger.info("Bundle loaded successfully");
       }
 
@@ -37,15 +39,21 @@ export class DuckDBManager {
         this.logger.info("Creating DuckDB worker...");
         const worker = await duckdb.createWorker(this.mainBundle!.mainWorker!);
         this.db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
-        
-        await this.db.instantiate(this.mainBundle!.mainModule, this.mainBundle!.pthreadWorker);
+
+        await this.db.instantiate(
+          this.mainBundle!.mainModule,
+          this.mainBundle!.pthreadWorker
+        );
         await this.db.open({ query: this.config.queryConfig });
-        
+
         this.logger.info("DuckDB-WASM initialized successfully");
       }
     } catch (error) {
       throw this.errorHandler.createError(
-        ErrorFactory.databaseInitialization("初期化に失敗しました", error as Error)
+        ErrorFactory.databaseInitialization(
+          "初期化に失敗しました",
+          error as Error
+        )
       );
     }
   }
@@ -53,7 +61,9 @@ export class DuckDBManager {
   async createConnection(): Promise<duckdb.AsyncDuckDBConnection> {
     if (!this.db) {
       throw this.errorHandler.createError(
-        ErrorFactory.databaseInitialization("データベースが初期化されていません")
+        ErrorFactory.databaseInitialization(
+          "データベースが初期化されていません"
+        )
       );
     }
 
@@ -63,7 +73,10 @@ export class DuckDBManager {
       return conn;
     } catch (error) {
       throw this.errorHandler.createError(
-        ErrorFactory.databaseInitialization("接続の作成に失敗しました", error as Error)
+        ErrorFactory.databaseInitialization(
+          "接続の作成に失敗しました",
+          error as Error
+        )
       );
     }
   }
@@ -71,7 +84,7 @@ export class DuckDBManager {
   async testCapabilities(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
     try {
       this.logger.info("Testing DuckDB capabilities...");
-      
+
       // バージョン確認
       const versionQuery = await conn.query("SELECT version();");
       const versionResult = versionQuery.toArray();
@@ -89,14 +102,22 @@ export class DuckDBManager {
         functions.map((f) => f.toJSON())
       );
     } catch (error) {
-      this.logger.warn("DuckDB capabilities test failed", (error as Error).message);
+      this.logger.warn(
+        "DuckDB capabilities test failed",
+        (error as Error).message
+      );
     }
   }
 
-  async registerFileBuffer(fileName: string, buffer: Uint8Array): Promise<void> {
+  async registerFileBuffer(
+    fileName: string,
+    buffer: Uint8Array
+  ): Promise<void> {
     if (!this.db) {
       throw this.errorHandler.createError(
-        ErrorFactory.databaseInitialization("データベースが初期化されていません")
+        ErrorFactory.databaseInitialization(
+          "データベースが初期化されていません"
+        )
       );
     }
 
@@ -113,12 +134,19 @@ export class DuckDBManager {
     }
   }
 
-  async executeQuery(conn: duckdb.AsyncDuckDBConnection, sql: string): Promise<any[]> {
+  async executeQuery(
+    conn: duckdb.AsyncDuckDBConnection,
+    sql: string
+  ): Promise<any[]> {
     try {
-      this.logger.debug("Executing SQL", { sql: sql.substring(0, 200) + "..." });
+      this.logger.debug("Executing SQL", {
+        sql: sql.substring(0, 200) + "...",
+      });
       const queryResult = await conn.query(sql);
       const results = queryResult.toArray().map((row) => row.toJSON());
-      this.logger.info(`Query executed successfully, ${results.length} rows returned`);
+      this.logger.info(
+        `Query executed successfully, ${results.length} rows returned`
+      );
       return results;
     } catch (error) {
       throw this.errorHandler.createError(
@@ -133,7 +161,10 @@ export class DuckDBManager {
         // Note: DuckDB-WASM doesn't have explicit cleanup methods
         this.logger.info("DuckDB cleanup completed");
       } catch (error) {
-        this.logger.warn("Error during DuckDB cleanup", (error as Error).message);
+        this.logger.warn(
+          "Error during DuckDB cleanup",
+          (error as Error).message
+        );
       }
     }
   }

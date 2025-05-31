@@ -1,12 +1,14 @@
-import { vi } from 'vitest';
+import { vi } from "vitest";
 
 // Setup for integration tests with real DuckDB
-global.setImmediate = global.setImmediate || ((fn: any, ...args: any[]) => setTimeout(fn, 0, ...args));
+global.setImmediate =
+  global.setImmediate ||
+  ((fn: any, ...args: any[]) => setTimeout(fn, 0, ...args));
 
 // Mock only necessary APIs for Node.js environment
-Object.defineProperty(global, 'fetch', {
+Object.defineProperty(global, "fetch", {
   value: vi.fn(),
-  configurable: true
+  configurable: true,
 });
 
 // Suppress console logs during integration tests unless debugging

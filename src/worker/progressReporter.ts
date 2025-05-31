@@ -78,6 +78,8 @@ export class ProgressReporter {
   }
 
   getCurrentPercentage(): number {
-    return this.currentStep < this.steps.length ? this.steps[this.currentStep].percentage : 0;
+    return this.currentStep < this.steps.length
+      ? this.steps[this.currentStep].percentage
+      : 0;
   }
 }

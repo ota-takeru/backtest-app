@@ -3,11 +3,11 @@
  * Tests runBacktest performance with P95 < 2s requirement
  */
 
-import { bench, describe, beforeAll, afterAll, expect } from 'vitest';
-import { Worker } from 'worker_threads';
-import * as DuckDB from '@duckdb/duckdb-wasm';
-import { compileDslToSql } from '../../src/lib/dslCompiler';
-import type { ASTNode } from '../../src/types';
+import { bench, describe, beforeAll, afterAll, expect } from "vitest";
+import { Worker } from "worker_threads";
+import * as DuckDB from "@duckdb/duckdb-wasm";
+import { compileDslToSql } from "../../src/lib/dslCompiler";
+import type { ASTNode } from "../../src/types";
 
 // Benchmark setup
 const setupBenchmarkData = async () => {
@@ -35,9 +35,12 @@ const setupBenchmarkData = async () => {
   return { db, conn };
 };
 
-const runBacktest = async (conn: DuckDB.AsyncDuckDBConnection, strategy: ASTNode) => {
+const runBacktest = async (
+  conn: DuckDB.AsyncDuckDBConnection,
+  strategy: ASTNode
+) => {
   const strategySql = compileDslToSql(strategy);
-  
+
   const query = `
     WITH strategy_signals AS (
       SELECT 
@@ -93,7 +96,7 @@ const runBacktest = async (conn: DuckDB.AsyncDuckDBConnection, strategy: ASTNode
   return await conn.query(query);
 };
 
-describe('Performance Benchmarks', () => {
+describe("Performance Benchmarks", () => {
   let db: DuckDB.AsyncDuckDB;
   let conn: DuckDB.AsyncDuckDBConnection;
 
@@ -108,128 +111,146 @@ describe('Performance Benchmarks', () => {
     if (db) await db.terminate();
   });
 
-  bench('Simple Moving Average Strategy', async () => {
-    const strategy: ASTNode = {
-      type: 'function_call',
-      name: 'MA',
-      args: [
-        { type: 'identifier', value: 'close' },
-        { type: 'number', value: 20 }
-      ]
-    };
+  bench(
+    "Simple Moving Average Strategy",
+    async () => {
+      const strategy: ASTNode = {
+        type: "function_call",
+        name: "MA",
+        args: [
+          { type: "identifier", value: "close" },
+          { type: "number", value: 20 },
+        ],
+      };
 
-    const result = await runBacktest(conn, strategy);
-    expect(result.toArray().length).toBeGreaterThan(2000);
-  }, { iterations: 10 });
+      const result = await runBacktest(conn, strategy);
+      expect(result.toArray().length).toBeGreaterThan(2000);
+    },
+    { iterations: 10 }
+  );
 
-  bench('RSI Strategy', async () => {
-    const strategy: ASTNode = {
-      type: 'function_call',
-      name: 'RSI',
-      args: [
-        { type: 'identifier', value: 'close' },
-        { type: 'number', value: 14 }
-      ]
-    };
+  bench(
+    "RSI Strategy",
+    async () => {
+      const strategy: ASTNode = {
+        type: "function_call",
+        name: "RSI",
+        args: [
+          { type: "identifier", value: "close" },
+          { type: "number", value: 14 },
+        ],
+      };
 
-    const result = await runBacktest(conn, strategy);
-    expect(result.toArray().length).toBeGreaterThan(2000);
-  }, { iterations: 10 });
+      const result = await runBacktest(conn, strategy);
+      expect(result.toArray().length).toBeGreaterThan(2000);
+    },
+    { iterations: 10 }
+  );
 
-  bench('ATR Strategy', async () => {
-    const strategy: ASTNode = {
-      type: 'function_call',
-      name: 'ATR',
-      args: [
-        { type: 'number', value: 14 }
-      ]
-    };
+  bench(
+    "ATR Strategy",
+    async () => {
+      const strategy: ASTNode = {
+        type: "function_call",
+        name: "ATR",
+        args: [{ type: "number", value: 14 }],
+      };
 
-    const result = await runBacktest(conn, strategy);
-    expect(result.toArray().length).toBeGreaterThan(2000);
-  }, { iterations: 10 });
+      const result = await runBacktest(conn, strategy);
+      expect(result.toArray().length).toBeGreaterThan(2000);
+    },
+    { iterations: 10 }
+  );
 
-  bench('Complex Multi-Indicator Strategy', async () => {
-    const strategy: ASTNode = {
-      type: 'binary_op',
-      operator: 'AND',
-      left: {
-        type: 'comparison',
-        operator: '>',
+  bench(
+    "Complex Multi-Indicator Strategy",
+    async () => {
+      const strategy: ASTNode = {
+        type: "binary_op",
+        operator: "AND",
         left: {
-          type: 'function_call',
-          name: 'RSI',
-          args: [
-            { type: 'identifier', value: 'close' },
-            { type: 'number', value: 14 }
-          ]
-        },
-        right: { type: 'number', value: 70 }
-      },
-      right: {
-        type: 'comparison',
-        operator: '>',
-        left: {
-          type: 'function_call',
-          name: 'MA',
-          args: [
-            { type: 'identifier', value: 'close' },
-            { type: 'number', value: 20 }
-          ]
+          type: "comparison",
+          operator: ">",
+          left: {
+            type: "function_call",
+            name: "RSI",
+            args: [
+              { type: "identifier", value: "close" },
+              { type: "number", value: 14 },
+            ],
+          },
+          right: { type: "number", value: 70 },
         },
         right: {
-          type: 'function_call',
-          name: 'MA',
+          type: "comparison",
+          operator: ">",
+          left: {
+            type: "function_call",
+            name: "MA",
+            args: [
+              { type: "identifier", value: "close" },
+              { type: "number", value: 20 },
+            ],
+          },
+          right: {
+            type: "function_call",
+            name: "MA",
+            args: [
+              { type: "identifier", value: "close" },
+              { type: "number", value: 50 },
+            ],
+          },
+        },
+      };
+
+      const result = await runBacktest(conn, strategy);
+      expect(result.toArray().length).toBeGreaterThan(2000);
+    },
+    { iterations: 5 }
+  );
+
+  bench(
+    "DSL Compilation Performance",
+    async () => {
+      const strategies = [
+        {
+          type: "function_call",
+          name: "MA",
           args: [
-            { type: 'identifier', value: 'close' },
-            { type: 'number', value: 50 }
-          ]
-        }
+            { type: "identifier", value: "close" },
+            { type: "number", value: 20 },
+          ],
+        },
+        {
+          type: "function_call",
+          name: "RSI",
+          args: [
+            { type: "identifier", value: "close" },
+            { type: "number", value: 14 },
+          ],
+        },
+        {
+          type: "function_call",
+          name: "ATR",
+          args: [{ type: "number", value: 14 }],
+        },
+      ] as ASTNode[];
+
+      // Compile multiple strategies
+      for (const strategy of strategies) {
+        const sql = compileDslToSql(strategy);
+        expect(sql).toBeDefined();
+        expect(sql.length).toBeGreaterThan(10);
       }
-    };
+    },
+    { iterations: 100 }
+  );
 
-    const result = await runBacktest(conn, strategy);
-    expect(result.toArray().length).toBeGreaterThan(2000);
-  }, { iterations: 5 });
-
-  bench('DSL Compilation Performance', async () => {
-    const strategies = [
-      {
-        type: 'function_call',
-        name: 'MA',
-        args: [
-          { type: 'identifier', value: 'close' },
-          { type: 'number', value: 20 }
-        ]
-      },
-      {
-        type: 'function_call',
-        name: 'RSI',
-        args: [
-          { type: 'identifier', value: 'close' },
-          { type: 'number', value: 14 }
-        ]
-      },
-      {
-        type: 'function_call',
-        name: 'ATR',
-        args: [
-          { type: 'number', value: 14 }
-        ]
-      }
-    ] as ASTNode[];
-
-    // Compile multiple strategies
-    for (const strategy of strategies) {
-      const sql = compileDslToSql(strategy);
-      expect(sql).toBeDefined();
-      expect(sql.length).toBeGreaterThan(10);
-    }
-  }, { iterations: 100 });
-
-  bench('Large Dataset Query', async () => {
-    // Test with 5 years of daily data (~1250 rows)
-    const query = `
+  bench(
+    "Large Dataset Query",
+    async () => {
+      // Test with 5 years of daily data (~1250 rows)
+      const query = `
       SELECT 
         date,
         close,
@@ -240,60 +261,70 @@ describe('Performance Benchmarks', () => {
       ORDER BY date
     `;
 
-    const result = await conn.query(query);
-    expect(result.toArray().length).toBeGreaterThan(2000);
-  }, { iterations: 20 });
-
-  bench('Memory Efficiency Test', async () => {
-    // Test multiple simultaneous queries
-    const queries = [];
-    
-    for (let i = 0; i < 5; i++) {
-      const strategy: ASTNode = {
-        type: 'function_call',
-        name: 'MA',
-        args: [
-          { type: 'identifier', value: 'close' },
-          { type: 'number', value: 10 + i * 5 }
-        ]
-      };
-      
-      queries.push(runBacktest(conn, strategy));
-    }
-
-    const results = await Promise.all(queries);
-    results.forEach(result => {
+      const result = await conn.query(query);
       expect(result.toArray().length).toBeGreaterThan(2000);
-    });
-  }, { iterations: 5 });
+    },
+    { iterations: 20 }
+  );
 
-  bench('SQL Injection Prevention Overhead', async () => {
-    // Test performance impact of input validation
-    const strategies = [
-      {
-        type: 'function_call',
-        name: 'MA',
-        args: [
-          { type: 'identifier', value: 'close' },
-          { type: 'number', value: 20 }
-        ]
-      },
-      {
-        type: 'function_call',
-        name: 'RSI',
-        args: [
-          { type: 'identifier', value: 'close' },
-          { type: 'number', value: 14 }
-        ]
-      }
-    ] as ASTNode[];
+  bench(
+    "Memory Efficiency Test",
+    async () => {
+      // Test multiple simultaneous queries
+      const queries = [];
 
-    // Multiple compilation cycles to test validation overhead
-    for (let i = 0; i < 10; i++) {
-      for (const strategy of strategies) {
-        const sql = compileDslToSql(strategy);
-        expect(sql).toBeDefined();
+      for (let i = 0; i < 5; i++) {
+        const strategy: ASTNode = {
+          type: "function_call",
+          name: "MA",
+          args: [
+            { type: "identifier", value: "close" },
+            { type: "number", value: 10 + i * 5 },
+          ],
+        };
+
+        queries.push(runBacktest(conn, strategy));
       }
-    }
-  }, { iterations: 50 });
+
+      const results = await Promise.all(queries);
+      results.forEach((result) => {
+        expect(result.toArray().length).toBeGreaterThan(2000);
+      });
+    },
+    { iterations: 5 }
+  );
+
+  bench(
+    "SQL Injection Prevention Overhead",
+    async () => {
+      // Test performance impact of input validation
+      const strategies = [
+        {
+          type: "function_call",
+          name: "MA",
+          args: [
+            { type: "identifier", value: "close" },
+            { type: "number", value: 20 },
+          ],
+        },
+        {
+          type: "function_call",
+          name: "RSI",
+          args: [
+            { type: "identifier", value: "close" },
+            { type: "number", value: 14 },
+          ],
+        },
+      ] as ASTNode[];
+
+      // Multiple compilation cycles to test validation overhead
+      for (let i = 0; i < 10; i++) {
+        for (const strategy of strategies) {
+          const sql = compileDslToSql(strategy);
+          expect(sql).toBeDefined();
+        }
+      }
+    },
+    { iterations: 50 }
+  );
 });

@@ -52,7 +52,12 @@ export class ArrowDataLoader {
     for (const method of this.config.supportedMethods) {
       try {
         this.logger.info(`Trying method: ${method}`);
-        const result = await this.tryLoadMethod(conn, arrowBuffer, tableName, method);
+        const result = await this.tryLoadMethod(
+          conn,
+          arrowBuffer,
+          tableName,
+          method
+        );
         if (result.success) {
           this.logger.info(`Successfully loaded data using method: ${method}`);
           return result;
@@ -64,7 +69,9 @@ export class ArrowDataLoader {
     }
 
     throw this.errorHandler.createError(
-      ErrorFactory.dataRegistration("すべてのArrowデータ読み込み方法が失敗しました")
+      ErrorFactory.dataRegistration(
+        "すべてのArrowデータ読み込み方法が失敗しました"
+      )
     );
   }
 
@@ -81,7 +88,7 @@ export class ArrowDataLoader {
     try {
       const arrow = await import("apache-arrow");
       const table = arrow.tableFromIPC(arrowBuffer);
-      
+
       this.logger.info("Arrow table validation", {
         schema: table.schema.fields.map((f) => ({
           name: f.name,
@@ -92,7 +99,10 @@ export class ArrowDataLoader {
         sampleRow: table.numRows > 0 ? table.get(0) : null,
       });
     } catch (error) {
-      this.logger.warn("Arrow buffer validation failed", (error as Error).message);
+      this.logger.warn(
+        "Arrow buffer validation failed",
+        (error as Error).message
+      );
     }
   }
 
@@ -104,15 +114,38 @@ export class ArrowDataLoader {
   ): Promise<ArrowLoadResult> {
     switch (method) {
       case "manual_table_creation":
-        return await this.loadViaManualTableCreation(conn, arrowBuffer, tableName);
+        return await this.loadViaManualTableCreation(
+          conn,
+          arrowBuffer,
+          tableName
+        );
       case "insertArrowFromIPCStream":
-        return await this.loadViaInsertArrowFromIPCStream(conn, arrowBuffer, tableName);
+        return await this.loadViaInsertArrowFromIPCStream(
+          conn,
+          arrowBuffer,
+          tableName
+        );
       case "file_registration_read_arrow":
-        return await this.loadViaFileRegistration(conn, arrowBuffer, tableName, "read_arrow");
+        return await this.loadViaFileRegistration(
+          conn,
+          arrowBuffer,
+          tableName,
+          "read_arrow"
+        );
       case "file_registration_arrow_scan":
-        return await this.loadViaFileRegistration(conn, arrowBuffer, tableName, "arrow_scan");
+        return await this.loadViaFileRegistration(
+          conn,
+          arrowBuffer,
+          tableName,
+          "arrow_scan"
+        );
       case "file_registration_parquet":
-        return await this.loadViaFileRegistration(conn, arrowBuffer, tableName, "read_parquet");
+        return await this.loadViaFileRegistration(
+          conn,
+          arrowBuffer,
+          tableName,
+          "read_parquet"
+        );
       default:
         throw new Error(`Unknown load method: ${method}`);
     }
@@ -135,9 +168,15 @@ export class ArrowDataLoader {
 
         if (arrowType.includes("int") || arrowType.includes("bigint")) {
           sqlType = "BIGINT";
-        } else if (arrowType.includes("float") || arrowType.includes("double")) {
+        } else if (
+          arrowType.includes("float") ||
+          arrowType.includes("double")
+        ) {
           sqlType = "DOUBLE";
-        } else if (arrowType.includes("date") || arrowType.includes("timestamp")) {
+        } else if (
+          arrowType.includes("date") ||
+          arrowType.includes("timestamp")
+        ) {
           sqlType = "DATE";
         }
 
@@ -168,7 +207,9 @@ export class ArrowDataLoader {
     }
 
     if (insertValues.length > 0) {
-      const bulkInsertSQL = `INSERT INTO ${tableName} VALUES ${insertValues.join(", ")}`;
+      const bulkInsertSQL = `INSERT INTO ${tableName} VALUES ${insertValues.join(
+        ", "
+      )}`;
       await this.duckDBManager.executeQuery(conn, bulkInsertSQL);
     }
 
@@ -190,7 +231,10 @@ export class ArrowDataLoader {
     });
 
     // テーブルの存在確認
-    await this.duckDBManager.executeQuery(conn, `SELECT COUNT(*) FROM ${tableName};`);
+    await this.duckDBManager.executeQuery(
+      conn,
+      `SELECT COUNT(*) FROM ${tableName};`
+    );
 
     return {
       success: true,
@@ -226,7 +270,10 @@ export class ArrowDataLoader {
   }> {
     try {
       // テーブル一覧を確認
-      const tablesQuery = await this.duckDBManager.executeQuery(conn, "SHOW TABLES;");
+      const tablesQuery = await this.duckDBManager.executeQuery(
+        conn,
+        "SHOW TABLES;"
+      );
       this.logger.debug("Available tables", tablesQuery);
 
       // 指定されたテーブルが存在するかチェック
@@ -240,7 +287,7 @@ export class ArrowDataLoader {
           const firstTable = tablesQuery[0];
           const firstTableName = firstTable.name || firstTable.table_name;
           this.logger.info(`Creating view ${tableName} from ${firstTableName}`);
-          
+
           const createViewSQL = `CREATE OR REPLACE VIEW ${tableName} AS SELECT * FROM "${firstTableName}";`;
           await this.duckDBManager.executeQuery(conn, createViewSQL);
         } else {
@@ -273,7 +320,9 @@ export class ArrowDataLoader {
       this.logger.error("Table verification failed", (error as Error).message);
       throw this.errorHandler.createError(
         ErrorFactory.dataRegistration(
-          `テーブル ${tableName} の検証に失敗しました: ${(error as Error).message}`
+          `テーブル ${tableName} の検証に失敗しました: ${
+            (error as Error).message
+          }`
         )
       );
     }

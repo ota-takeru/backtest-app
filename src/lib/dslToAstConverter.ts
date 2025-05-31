@@ -23,7 +23,9 @@ function parseConditionToAst(condition: string): AnyNode {
   condition = condition.trim();
 
   // RSI関数のパターン
-  const rsiMatch = condition.match(/rsi\((\d+)\)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)/);
+  const rsiMatch = condition.match(
+    /rsi\((\d+)\)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)/
+  );
   if (rsiMatch) {
     const [, period, operator, value] = rsiMatch;
     return {
@@ -52,18 +54,26 @@ function parseConditionToAst(condition: string): AnyNode {
       left: {
         type: "Func",
         name: "ma",
-        args: [{ type: "Value", kind: "IDENT", value: "close" }, parseInt(period1)],
+        args: [
+          { type: "Value", kind: "IDENT", value: "close" },
+          parseInt(period1),
+        ],
       },
       right: {
         type: "Func",
         name: "ma",
-        args: [{ type: "Value", kind: "IDENT", value: "close" }, parseInt(period2)],
+        args: [
+          { type: "Value", kind: "IDENT", value: "close" },
+          parseInt(period2),
+        ],
       },
     };
   }
 
   // 単純なma(period) > ma(period2)パターン
-  const maCrossMatch = condition.match(/ma\((\d+)\)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)/);
+  const maCrossMatch = condition.match(
+    /ma\((\d+)\)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)/
+  );
   if (maCrossMatch) {
     const [, period, operator, value] = maCrossMatch;
     return {
@@ -72,7 +82,10 @@ function parseConditionToAst(condition: string): AnyNode {
       left: {
         type: "Func",
         name: "ma",
-        args: [{ type: "Value", kind: "IDENT", value: "close" }, parseInt(period)],
+        args: [
+          { type: "Value", kind: "IDENT", value: "close" },
+          parseInt(period),
+        ],
       },
       right: {
         type: "Value",
@@ -83,7 +96,9 @@ function parseConditionToAst(condition: string): AnyNode {
   }
 
   // close > 100 のような単純なパターン
-  const simpleMatch = condition.match(/(close|high|low|open|volume)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)/);
+  const simpleMatch = condition.match(
+    /(close|high|low|open|volume)\s*([<>=!]+)\s*(\d+(?:\.\d+)?)/
+  );
   if (simpleMatch) {
     const [, field, operator, value] = simpleMatch;
     return {

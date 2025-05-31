@@ -10,10 +10,10 @@ export enum ErrorCode {
   // データ関連エラー (E3xxx)
   E3001 = "E3001", // Worker内部エラー/データベース初期化エラー
   E3002 = "E3002", // データ登録エラー
-  
+
   // 戦略関連エラー (E1xxx)
   E1002 = "E1002", // AST→SQL変換エラー
-  
+
   // 汎用エラー
   E9999 = "E9999", // テスト用/予期しないエラー
 }
@@ -57,14 +57,11 @@ export class ErrorHandler {
 
   createError(errorDetails: ErrorDetails): WorkerError {
     const error = new WorkerError(errorDetails);
-    this.logger.error(
-      `${error.code}: ${error.message}`,
-      {
-        context: error.context,
-        details: error.details,
-        originalError: error.originalError?.message,
-      }
-    );
+    this.logger.error(`${error.code}: ${error.message}`, {
+      context: error.context,
+      details: error.details,
+      originalError: error.originalError?.message,
+    });
     return error;
   }
 
@@ -78,7 +75,7 @@ export class ErrorHandler {
     }
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     return this.createError({
       code: defaultCode,
       message: errorMessage,
@@ -92,17 +89,19 @@ export class ErrorHandler {
     error: WorkerError | ErrorDetails,
     postMessage: (message: WorkerErrorMessage) => void
   ): void {
-    const workerError = error instanceof WorkerError 
-      ? error 
-      : this.createError(error);
-    
+    const workerError =
+      error instanceof WorkerError ? error : this.createError(error);
+
     postMessage(workerError.toWorkerMessage(req_id));
   }
 }
 
 // 事前定義されたエラーファクトリー関数
 export const ErrorFactory = {
-  databaseInitialization: (message: string, originalError?: Error): ErrorDetails => ({
+  databaseInitialization: (
+    message: string,
+    originalError?: Error
+  ): ErrorDetails => ({
     code: ErrorCode.E3001,
     message: `DuckDB初期化エラー: ${message}`,
     originalError,

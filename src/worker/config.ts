@@ -61,7 +61,9 @@ export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
   },
 };
 
-export function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
+export function createWorkerConfig(
+  overrides?: Partial<WorkerConfig>
+): WorkerConfig {
   return {
     ...DEFAULT_WORKER_CONFIG,
     ...overrides,
