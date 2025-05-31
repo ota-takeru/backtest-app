@@ -10,12 +10,14 @@ import {
 import react from "@vitejs/plugin-react";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
+import { sizeSnapshot } from "rollup-plugin-size-snapshot";
 
 const vitestConfig: VitestUserConfig = {
   test: {
     globals: true,
     environment: "happy-dom", // or 'jsdom'
     include: ["src/**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+    reporters: "verbose",
     benchmark: {
       include: ["src/**/*.{bench,benchmark}.?(c|m)[jt]s?(x)"],
       reporters: ["default"],
@@ -29,6 +31,13 @@ export default defineViteConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  build: {
+    rollupOptions: {
+      plugins: [
+        // 一時的にsize-snapshotプラグインを無効化
+      ],
     },
   },
   server: {
@@ -48,6 +57,9 @@ export default defineViteConfig({
       // ワーカー用のプラグイン (もしあれば)
     ],
     rollupOptions: {
+      plugins: [
+        // ワーカーではsize-snapshotプラグインを使用しない
+      ],
       output: {
         // ハッシュを含まない固定のファイル名で出力
         entryFileNames: `worker.js`, // worker.js として出力

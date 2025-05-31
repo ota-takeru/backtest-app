@@ -1,340 +1,219 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
 import {
   BacktestRequest,
-  WorkerMessage,
-  BacktestResponse,
+  // WorkerMessage, // Worker自身は送信側なので、受信メッセージ型はBacktestRequest
+  BacktestResponse, // 送信する結果の型
   TradeRow,
-} from "../types/worker";
-import { StrategyDSL } from "../types/dsl"; // StrategyDSL をインポート
-import { parseBoolExpr, astToSqlPredicate } from "../lib/dsl-compiler"; // dsl-compiler から関数をインポート
+  StrategyAST, // StrategyDSLからStrategyASTに変更
+  WorkerErrorMessage, // エラーメッセージ型を追加
+  WorkerProgressMessage, // 進捗メッセージ型
+  WorkerResultMessage, // 結果メッセージ型
+} from "../types"; // インポートパスを修正
+// import { parseBoolExpr, astToSqlPredicate } from "../lib/dsl-compiler"; // これは新しいAST->SQLコンパイラに置き換えられる想定
+import { astToSql, AstToSqlError } from "./astToSql"; // 新しいAST->SQLコンパイラをインポート
 
-// DuckDBインスタンスと設定
-const logger = new duckdb.ConsoleLogger(); // グローバルスコープに logger を定義
-let mainBundle: duckdb.DuckDBBundle | null = null; // mainBundle もグローバルに、初期化は後で
-
+const logger = new duckdb.ConsoleLogger();
+let mainBundle: duckdb.DuckDBBundle | null = null;
 let db: duckdb.AsyncDuckDB | null = null;
 
 async function initializeDBAndRegisterOHLC(
+  req_id: string, // req_idをエラー通知のために渡す
   arrowBuffer: Uint8Array
 ): Promise<duckdb.AsyncDuckDBConnection> {
-  if (!mainBundle) {
-    // mainBundleが未初期化の場合のみ実行
-    mainBundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
-  }
-  if (!db) {
-    const worker = await duckdb.createWorker(mainBundle!.mainWorker!); // ! を使用
-    db = new duckdb.AsyncDuckDB(logger, worker);
-    await db.instantiate(mainBundle!.mainModule, mainBundle!.pthreadWorker); // ! を使用し、pthreadWorkerを参照
-    await db.open({ query: { castBigIntToDouble: true } });
-    console.log("DuckDB-Wasm initialized.");
-  }
-  const conn = await db.connect();
-
-  // UDFs の登録をコメントアウト
-  /*
-  await conn.query(\`
-    CREATE OR REPLACE FUNCTION udf_rsi(price DOUBLE, period INTEGER)
-    RETURNS DOUBLE AS $$
-      WITH diffs AS (
-        SELECT price - lag(price) OVER (ORDER BY rowid) AS dp
-      ),
-      pos AS (SELECT sum(greatest(dp,0))/period FROM diffs),
-      neg AS (SELECT abs(sum(least(dp,0)))/period FROM diffs)
-      SELECT 100 - 100/(1 + pos/neg);
-    $$;
-  \`);
-  await conn.query(\`
-    CREATE OR REPLACE FUNCTION udf_atr(current_high DOUBLE, current_low DOUBLE, current_close DOUBLE, period INTEGER)
-    RETURNS DOUBLE AS $$
-      SELECT GREATEST(
-        current_high - current_low,
-        ABS(current_high - LAG(current_close, 1, current_close) OVER (ORDER BY rowid)),
-        ABS(current_low - LAG(current_close, 1, current_close) OVER (ORDER BY rowid))
-      );
-    $$;
-  \`);
-  */
-  console.log("SQL UDF registration skipped.");
-
-  await db.registerFileBuffer("input_arrow.arrow", arrowBuffer);
-  console.log("Buffer 'input_arrow.arrow' registered.");
-
-  // デバッグ用: 登録したバッファを直接クエリしてみる
   try {
-    // const debugQuery = "SELECT COUNT(*) as count FROM read_ipc('input_arrow.arrow');"; // これも試す
-    const debugQuery = "SELECT COUNT(*) as count FROM 'input_arrow.arrow';";
-    console.log(`[Worker Debug] Executing debug query: ${debugQuery}`);
-    const debugResult = await conn.query(debugQuery);
-    console.log(
-      "[Worker Debug] Debug query result:",
-      debugResult.toArray().map((r) => r.toJSON())
-    );
-  } catch (e: any) {
-    console.error(
-      "[Worker Debug] Error during debug query:",
-      e.message,
-      e.detail && typeof e.detail.toString === "function"
-        ? e.detail.toString()
-        : e.detail || e.toString()
-    );
-  }
-
-  // 元のテーブル作成
-  try {
+    if (!mainBundle) {
+      mainBundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+    }
+    if (!db) {
+      const worker = await duckdb.createWorker(mainBundle!.mainWorker!);
+      db = new duckdb.AsyncDuckDB(logger, worker);
+      await db.instantiate(mainBundle!.mainModule, mainBundle!.pthreadWorker);
+      await db.open({ query: { castBigIntToDouble: true } });
+      console.log("DuckDB-WASM initialized.");
+    }
+    const conn = await db.connect();
+    await db.registerFileBuffer("input_arrow.arrow", arrowBuffer);
     await conn.query(
       "CREATE OR REPLACE TABLE ohlc_data AS SELECT * FROM 'input_arrow.arrow';"
     );
-    console.log(
-      "ohlc_data table potentially created from 'input_arrow.arrow'."
-    );
+    return conn;
   } catch (e: any) {
-    console.error(
-      "[Worker] Error creating ohlc_data table:",
-      e.message,
-      e.detail && typeof e.detail.toString === "function"
-        ? e.detail.toString()
-        : e.detail || e.toString()
-    );
-  }
-
-  return conn;
-}
-
-self.onmessage = async (
-  event: MessageEvent<BacktestRequest & { dsl: StrategyDSL }>
-) => {
-  const { req_id, arrow, params, dsl } = event.data;
-
-  let conn: duckdb.AsyncDuckDBConnection | null = null;
-
-  try {
-    if (!dsl) {
-      throw new Error(
-        "StrategyDSL (dsl) object not provided in BacktestRequest."
-      );
-    }
-    if (!arrow) {
-      throw new Error("Arrow data (arrow) not provided in BacktestRequest.");
-    }
-
-    conn = await initializeDBAndRegisterOHLC(arrow);
-
-    const entry_predicate_sql = astToSqlPredicate(
-      parseBoolExpr(dsl.entry.condition),
-      "ohlc_with_indicators"
-    );
-    const exit_predicate_sql = astToSqlPredicate(
-      parseBoolExpr(dsl.exit.condition),
-      "ohlc_with_indicators"
-    );
-
-    const slippage_pct = (params.slippageBp || 0) / 10000;
-    const stockCode = dsl.universe[0] || "<unknown_code>";
-
-    function getIndicatorsFromDsl(
-      dslString: string
-    ): { name: string; column?: string; period: number }[] {
-      const indicators: { name: string; column?: string; period: number }[] =
-        [];
-      const regex =
-        /(ma|rsi|atr)\s*\(\s*(?:([a-zA-Z_][a-zA-Z0-9_]*)\s*,\s*)?(\d+)\s*\)/gi;
-      let match;
-      while ((match = regex.exec(dslString)) !== null) {
-        const indicatorName = match[1].toLowerCase();
-        let periodStr: string;
-        let columnName: string | undefined = undefined;
-
-        if (match[2] && match[3]) {
-          // func(col, period)
-          columnName =
-            match[2].toLowerCase() === "price"
-              ? "close"
-              : match[2].toLowerCase();
-          periodStr = match[3];
-        } else if (match[2]) {
-          // func(period) - because match[2] can be period if match[3] is undefined
-          periodStr = match[2];
-        } else {
-          continue; // Should not happen with the regex
-        }
-        const period = parseInt(periodStr, 10);
-
-        if (indicatorName === "ma") {
-          indicators.push({
-            name: "ma",
-            column: columnName || "close",
-            period,
-          });
-        } else if (indicatorName === "rsi" || indicatorName === "atr") {
-          indicators.push({ name: indicatorName, period }); // rsi/atr は対象カラムを内部で決定
-        }
-      }
-      const uniqueIndicators = Array.from(
-        new Map(
-          indicators.map((item) => [
-            `${item.name}_${item.column || ""}_${item.period}`,
-            item,
-          ])
-        ).values()
-      );
-      return uniqueIndicators;
-    }
-
-    const allConditions = `${dsl.entry.condition} ${dsl.exit.condition || ""}`;
-    const usedIndicators = getIndicatorsFromDsl(allConditions);
-    console.log("[Worker] Used indicators based on DSL:", usedIndicators);
-
-    let indicatorCteSql = "";
-    let indicatorJoinClauses: string[] = [];
-    let indicatorSelectColumns: string[] = [];
-
-    usedIndicators.forEach((ind) => {
-      const baseTable = "ohlc_data_with_id";
-      let cteName = "";
-      let valueColumnName = "";
-
-      if (ind.name === "ma") {
-        const col = ind.column || "close";
-        cteName = `ma_${col}_${ind.period}`;
-        valueColumnName = `${cteName}_value`;
-        indicatorCteSql += `
-  ${cteName} AS (
-    SELECT date, AVG(${col}) OVER (ORDER BY date ROWS BETWEEN ${
-          ind.period - 1
-        } PRECEDING AND CURRENT ROW) as ${valueColumnName}
-    FROM ${baseTable}
-  ),`;
-      } else if (ind.name === "rsi") {
-        cteName = `rsi_${ind.period}`;
-        valueColumnName = `${cteName}_value`;
-        indicatorCteSql += `
-  diffs_rsi_${ind.period} AS (
-    SELECT date, close - LAG(close, 1, close) OVER (ORDER BY date) as diff
-    FROM ${baseTable}
-  ),
-  avg_gain_loss_rsi_${ind.period} AS (
-    SELECT
-      date,
-      AVG(CASE WHEN diff > 0 THEN diff ELSE 0 END) OVER (ORDER BY date ROWS BETWEEN ${
-        ind.period - 1
-      } PRECEDING AND CURRENT ROW) as avg_gain,
-      AVG(CASE WHEN diff < 0 THEN ABS(diff) ELSE 0 END) OVER (ORDER BY date ROWS BETWEEN ${
-        ind.period - 1
-      } PRECEDING AND CURRENT ROW) as avg_loss
-    FROM diffs_rsi_${ind.period}
-  ),
-  ${cteName} AS (
-    SELECT
-      date,
-      CASE
-        WHEN avg_loss = 0 THEN 100.0
-        ELSE 100.0 - (100.0 / (1.0 + (avg_gain / avg_loss)))
-      END as ${valueColumnName}
-    FROM avg_gain_loss_rsi_${ind.period}
-  ),`;
-      } else if (ind.name === "atr") {
-        cteName = `atr_${ind.period}`;
-        valueColumnName = `${cteName}_value`;
-        indicatorCteSql += `
-  tr_atr_${ind.period} AS (
-    SELECT
-      date,
-      GREATEST(
-        high - low,
-        ABS(high - LAG(close, 1, close) OVER (ORDER BY date)),
-        ABS(low - LAG(close, 1, close) OVER (ORDER BY date))
-      ) as tr_value
-    FROM ${baseTable}
-  ),
-  ${cteName} AS (
-    SELECT
-      date,
-      AVG(tr_value) OVER (ORDER BY date ROWS BETWEEN ${
-        ind.period - 1
-      } PRECEDING AND CURRENT ROW) as ${valueColumnName}
-    FROM tr_atr_${ind.period}
-  ),`;
-      }
-      if (cteName && valueColumnName) {
-        indicatorJoinClauses.push(`LEFT JOIN ${cteName} USING (date)`);
-        indicatorSelectColumns.push(
-          `${cteName}.${valueColumnName} AS ${cteName.replace(
-            `_${ind.column || "close"}_`,
-            "_"
-          )}`
-        ); // ma_close_5 -> ma_5
-      }
-    });
-    if (indicatorCteSql.endsWith(",")) {
-      indicatorCteSql = indicatorCteSql.slice(0, -1); // 最後のカンマを削除
-    }
-
-    // SQLを簡略化してテスト
-    const simplifiedSql = `
-WITH
-  ohlc_data_with_id AS (
-    SELECT 
-        strftime(date, '%Y-%m-%dT%H:%M:%SZ') as date,
-        open, high, low, close, volume,
-        row_number() OVER (ORDER BY date) as rn 
-    FROM ohlc_data
-  )
-  -- ${
-    indicatorCteSql ? `,${indicatorCteSql}` : ""
-  } -- 指標CTEを一時的にコメントアウト
-SELECT * FROM ohlc_data_with_id
--- ${indicatorJoinClauses.join("\n")} -- JOINも一時的にコメントアウト
-LIMIT 10;
-    `;
-
-    console.log("[Worker] Executing SIMPLIFIED SQL:", simplifiedSql);
-    const tempResults = await conn.query(simplifiedSql);
-    console.log("[Worker] Temp results (simplified SQL):");
-    tempResults.toArray().forEach((row) => console.log(row.toJSON()));
-
-    postMessage({
-      type: "result",
-      req_id,
-      equityCurve: [],
-      trades: [],
-      metrics: {
-        cagr: 0,
-        maxDd: 0,
-        sharpe: 0,
-        trades: 0,
-        winRate: null,
-        avgWinLoss: null,
-        profitFactor: null,
-        a_VaR: null,
-        a_ES: null,
-        a_SR: null,
-        a_SoR: null,
-        a_IR: null,
-      },
-    } as BacktestResponse);
-  } catch (err: any) {
-    console.error(
-      `[Worker Error] req_id: ${req_id}, Error Type: ${err?.constructor?.name}, Message: ${err?.message}, Stack: ${err?.stack}`
-    );
-    if (err && typeof err.toString === "function") {
-      console.error(`[Worker Error Detail] ${err.toString()}`);
-    }
-    if (err && err.detail) {
-      console.error(`[Worker Error DuckDB Detail] ${err.detail}`);
-    }
-    postMessage({
+    console.error("[Worker] DB Initialization/Registration Error:", e);
+    // E0008 Worker初期化失敗 に近いが、より汎用的な E1005 を使用
+    // REQUIREMENTS.md §9 に合わせ、E3001 または E3002 を使用
+    const errorCode =
+      e.message?.includes("Arrow") || e.message?.includes("registerFileBuffer")
+        ? "E3002"
+        : "E3001";
+    self.postMessage({
       type: "error",
       req_id,
-      message: err.message || "Unknown worker error",
-      code: "E3001",
-    } as WorkerMessage);
+      message: `${errorCode}: DuckDB初期化/データ登録エラー: ${e.message}`,
+    } as WorkerErrorMessage);
+    throw e; // エラーを再スローして処理を中断
+  }
+}
+
+self.onmessage = async (event: MessageEvent<BacktestRequest>) => {
+  const { req_id, dsl_ast, arrow, params } = event.data;
+  let conn: duckdb.AsyncDuckDBConnection | null = null;
+
+  const postProgress = (progress: number, message: string) => {
+    self.postMessage({
+      type: "progress",
+      req_id,
+      progress,
+      message,
+    } as WorkerProgressMessage);
+  };
+
+  const postError = (
+    errorCode: string,
+    errorMessage: string,
+    details?: string
+  ) => {
+    self.postMessage({
+      type: "error",
+      req_id,
+      message: `${errorCode}: ${errorMessage}${details ? " - " + details : ""}`,
+    } as WorkerErrorMessage);
+  };
+
+  try {
+    postProgress(10, "バックテスト処理開始...");
+
+    if (!dsl_ast) {
+      // postError("E1005", "戦略定義(dsl_ast)が提供されていません。");
+      postError("E3001", "戦略定義(dsl_ast)が提供されていません。");
+      return;
+    }
+    if (!arrow) {
+      // postError("E1005", "Arrowデータ(arrow)が提供されていません。");
+      postError("E3001", "Arrowデータ(arrow)が提供されていません。");
+      return;
+    }
+
+    conn = await initializeDBAndRegisterOHLC(req_id, arrow);
+    postProgress(20, "DB初期化・データ登録完了。");
+
+    // 1. AST -> SQL 変換 (E1002)
+    let main_sql_query: string;
+    try {
+      main_sql_query = astToSql(
+        dsl_ast,
+        params.initCash,
+        params.slippageBp,
+        "ohlc_data"
+      );
+      console.log("[Worker] Generated SQL:", main_sql_query);
+      postProgress(40, "SQL生成完了。");
+    } catch (e: any) {
+      if (e instanceof AstToSqlError) {
+        postError(
+          "E1002",
+          "戦略のSQL変換に失敗しました",
+          e.message + (e.details ? ` (${JSON.stringify(e.details)})` : "")
+        );
+      } else {
+        postError(
+          "E1002",
+          "戦略のSQL変換中に予期せぬエラーが発生しました",
+          e.message
+        );
+      }
+      return;
+    }
+
+    // 2. DuckDB SQL実行 (E3001)
+    let rawResults: any[];
+    try {
+      console.log("[Worker] Executing main backtest SQL...");
+      const queryResult = await conn.query(main_sql_query); // main_sql_query が結果を返す想定
+      rawResults = queryResult.toArray().map((row) => row.toJSON()); // 結果をJSONオブジェクトの配列に
+
+      postProgress(70, "バックテストSQL実行完了。");
+    } catch (e: any) {
+      // postError(
+      //   "E1003",
+      //   "バックテストSQLの実行に失敗しました",
+      //   e.message + (e.detail ? ` (${e.detail.toString()})` : "")
+      // );
+      postError(
+        "E3001",
+        "バックテストSQLの実行に失敗しました (DuckDB実行時エラー)",
+        e.message + (e.detail ? ` (${e.detail.toString()})` : "")
+      );
+      return;
+    }
+
+    // 3. 結果データ処理 (E3001の一部として、またはより具体的なメッセージで)
+    let responseData: BacktestResponse;
+    try {
+      if (!rawResults || rawResults.length === 0) {
+        throw new Error("SQL実行結果が空です。");
+      }
+
+      const metrics = rawResults.find((r) => r.type === "metrics") || {
+        cagr: null,
+        maxDd: null,
+        sharpe: null,
+      };
+      const equityCurve = rawResults
+        .filter((r) => r.type === "equity_point")
+        .map((r) => ({ date: r.date, equity: r.equity }));
+      const trades = rawResults
+        .filter((r) => r.type === "trade_log")
+        .map((r) => ({
+          date: r.date,
+          side: r.side,
+          price: r.price,
+          quantity: r.quantity,
+          pnl: r.pnl,
+        }));
+      const warnings = rawResults
+        .filter((r) => r.type === "warning")
+        .map((r) => r.message);
+
+      responseData = {
+        req_id,
+        metrics: metrics.cagr === undefined ? null : metrics,
+        equityCurve,
+        trades,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      };
+      postProgress(90, "結果データ処理完了。");
+    } catch (e: any) {
+      // postError(
+      //   "E1004",
+      //   "バックテスト結果の処理中にエラーが発生しました",
+      //   e.message
+      // );
+      postError(
+        "E3001", // E1004 は廃止し、E3001 に統合 (Worker内部処理エラー)
+        "バックテスト結果の解析・処理中にエラーが発生しました",
+        e.message
+      );
+      return;
+    }
+
+    self.postMessage({
+      type: "result",
+      ...responseData,
+    } as WorkerResultMessage);
+  } catch (e: any) {
+    console.error("[Worker] Unhandled error in onmessage:", e);
+    // postError("E1005", "Worker内で不明なエラーが発生しました", e.message);
+    postError("E3001", "Worker内で予期せぬエラーが発生しました", e.message);
   } finally {
     if (conn) {
-      await conn.close();
+      try {
+        await conn.close();
+      } catch (closeErr: any) {
+        console.warn("[Worker] Error closing DB connection:", closeErr.message);
+      }
     }
+    postProgress(100, "バックテスト処理終了。");
   }
 };
-
-console.log("Worker script (with SQL pipeline structure) loaded");
 
 console.log("Worker script (with SQL pipeline structure) loaded");

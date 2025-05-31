@@ -1,52 +1,17 @@
-import { StrategySchema, StrategyDSL } from "./dslSchema";
+import { strategyASTSchema, StrategyAST } from "../types/dslSchema";
 // @ts-ignore no type declarations
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-function buildStubStrategy(prompt: string): StrategyDSL {
-  // Very naive stub: single code 7203.T, MA cross strategy
-  return {
-    meta: {
-      dsl_version: "1.0",
-      created_at: new Date().toISOString(),
-    },
-    data_source: "jquants_v1",
-    universe: ["7203.T"],
-    cash: 1_000_000,
-    entry: {
-      condition: "ma(5) > ma(25)",
-      timing: "next_open",
-    },
-    exit: {
-      condition: "price <= entry_price*0.9",
-      timing: "current_close",
-    },
-    stop_loss: {
-      type: "percent",
-      value: 0.1,
-    },
-    take_profit: null,
-    position: {
-      size_type: "all_cash",
-      value: null,
-    },
-    indicators: {
-      ma: [5, 25],
-    },
-  };
-}
-
 export async function buildStrategyFromPrompt(
-  prompt: string
-): Promise<{ ok: true; strategy: StrategyDSL } | { ok: false; error: string }> {
+  prompt: string,
+  apiKey: string
+): Promise<{ ok: true; strategy: StrategyAST } | { ok: false; error: string }> {
   try {
-    const key =
-      sessionStorage.getItem("openai_api_key") ||
-      import.meta.env.VITE_OPENAI_API_KEY;
-    if (!key) {
+    if (!apiKey) {
       return {
         ok: false,
         error:
-          "OpenAI APIキーが設定されていません。UIまたは環境変数 VITE_OPENAI_API_KEY で設定してください。",
+          "OpenAI APIキーが設定されていません。UIのAPIキー設定から設定してください。",
       };
     }
 
@@ -54,7 +19,7 @@ export async function buildStrategyFromPrompt(
     const mod = await import("https://esm.sh/openai@4.7.0?bundle");
     const OpenAI = mod.default ?? mod;
     const openai = new OpenAI({
-      apiKey: key,
+      apiKey: apiKey,
       dangerouslyAllowBrowser: true,
     });
 
@@ -62,41 +27,62 @@ export async function buildStrategyFromPrompt(
       {
         role: "system",
         content:
-          "You are a strategy compiler. Convert the user strategy written in Japanese natural language into the exact JSON that follows the Strategy-DSL v1.0 schema. Never omit mandatory keys nor introduce new ones.",
+          'あなたは戦略コンパイラです。ユーザーが日本語で記述した戦略を、指定されたJSON-AST-DSLスキーマに厳密に従ってJSON形式に変換してください。必須キーを省略したり、スキーマにない新しいキーを追加したりしないでください。\n\nJSON-AST-DSLスキーマの概要:\n- ルートオブジェクトは entry, exit, universe を必須プロパティとして持ちます。\n- entry と exit は ast (戦略のロジックを表す抽象構文木) と timing (実行タイミング) を持ちます。\n- ast は Logical (AND/OR), Binary (>, <, == など), Func (ma, rsi, atr), Value (数値や価格など) のノードで構成されます。\n- universe は対象銘柄コードの配列です (例: ["7203.T"])。\n- cash (初期資金) と slippage_bp (スリッページ) はオプショナルです。',
       },
       { role: "user", content: prompt },
     ];
 
-    const jsonSchema: any = zodToJsonSchema(StrategySchema);
+    const jsonSchema: any = zodToJsonSchema(strategyASTSchema);
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-functions-beta",
+      model: "gpt-4o",
       messages,
       tools: [
         {
           type: "function",
           function: {
-            name: "build_strategy",
+            name: "build_json_ast_dsl_strategy",
+            description:
+              "ユーザーの自然言語戦略をJSON-AST-DSL形式に変換します。",
             parameters: jsonSchema,
           },
         },
       ],
-      tool_choice: { type: "function", function_name: "build_strategy" },
+      tool_choice: {
+        type: "function",
+        function_name: "build_json_ast_dsl_strategy",
+      },
     });
 
     const toolCall = response.choices[0]?.message?.tool_calls?.[0];
     if (!toolCall || !toolCall.function?.arguments) {
-      return { ok: false, error: "LLM did not return function call." } as const;
+      return { ok: false, error: "LLMが関数呼び出しを返しませんでした。" };
     }
 
-    const parsed = JSON.parse(toolCall.function.arguments);
-    const validation = StrategySchema.safeParse(parsed);
-    if (validation.success) {
-      return { ok: true, strategy: validation.data } as const;
+    let parsedArguments;
+    try {
+      parsedArguments = JSON.parse(toolCall.function.arguments);
+    } catch (e: any) {
+      return {
+        ok: false,
+        error: `LLMが返したJSONのパースに失敗しました: ${e.message}`,
+      };
     }
-    return { ok: false, error: `E1001: ${validation.error.message}` } as const;
+
+    const validation = strategyASTSchema.safeParse(parsedArguments);
+    if (validation.success) {
+      return { ok: true, strategy: validation.data };
+    } else {
+      const errorMessages = validation.error.errors
+        .map((err) => `${err.path.join(".")} (${err.code}): ${err.message}`)
+        .join("; ");
+      return {
+        ok: false,
+        error: `E1001 (スキーマ検証エラー): ${errorMessages}`,
+      };
+    }
   } catch (err: any) {
-    console.error("OpenAI API call failed:", err);
+    console.error("OpenAI API呼び出し失敗:", err);
     return {
       ok: false,
       error: `OpenAI API呼び出しエラー: ${err.message || String(err)}`,

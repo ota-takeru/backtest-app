@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StrategyAST",
+  "description": "JSON-AST-DSL for backtest strategies",
+  "type": "object",
+  "required": ["entry", "exit", "universe"],
+  "properties": {
+    "entry": {
+      "type": "object",
+      "required": ["ast", "timing"],
+      "properties": {
+        "ast": { "$ref": "#/definitions/AnyNode" },
+        "timing": { "enum": ["next_open", "close"] }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": ["ast", "timing"],
+      "properties": {
+        "ast": { "$ref": "#/definitions/AnyNode" },
+        "timing": { "enum": ["current_close"] }
+      }
+    },
+    "universe": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9]{4}\\.T$" },
+      "minItems": 1
+    },
+    "cash": { "type": "integer", "default": 1000000 },
+    "slippage_bp": { "type": "number", "default": 3 }
+  },
+  "definitions": {
+    "AnyNode": {
+      "oneOf": [
+        { "$ref": "#/definitions/Logical" },
+        { "$ref": "#/definitions/Binary" },
+        { "$ref": "#/definitions/Func" },
+        { "$ref": "#/definitions/Value" }
+      ]
+    },
+    "Logical": {
+      "type": "object",
+      "required": ["type", "op", "left", "right"],
+      "properties": {
+        "type": { "const": "Logical" },
+        "op": { "enum": ["AND", "OR"] },
+        "left": { "$ref": "#/definitions/AnyNode" },
+        "right": { "$ref": "#/definitions/AnyNode" }
+      }
+    },
+    "Binary": {
+      "type": "object",
+      "required": ["type", "op", "left", "right"],
+      "properties": {
+        "type": { "const": "Binary" },
+        "op": { "enum": [">", "<", ">=", "<=", "==", "!="] },
+        "left": { "$ref": "#/definitions/AnyNode" },
+        "right": { "$ref": "#/definitions/AnyNode" }
+      }
+    },
+    "Func": {
+      "type": "object",
+      "required": ["type", "name", "args"],
+      "properties": {
+        "type": { "const": "Func" },
+        "name": { "enum": ["ma", "rsi", "atr"] },
+        "args": {
+          "type": "array",
+          "items": {
+            "oneOf": [{ "type": "number" }, { "$ref": "#/definitions/Value" }]
+          },
+          "minItems": 1,
+          "maxItems": 2
+        }
+      }
+    },
+    "Value": {
+      "type": "object",
+      "required": ["type", "kind", "value"],
+      "properties": {
+        "type": { "const": "Value" },
+        "kind": { "enum": ["IDENT", "NUMBER"] },
+        "value": {
+          "oneOf": [
+            {
+              "enum": ["price", "entry_price", "high", "low", "close", "volume"]
+            },
+            { "type": "number" }
+          ]
+        }
+      }
+    }
+  }
+}

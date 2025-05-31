@@ -35,9 +35,9 @@ export function ApiKeyModal({ isOpen, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg space-y-4">
-        <h2 className="text-xl font-semibold">APIキー設定</h2>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" data-testid="api-key-modal-overlay">
+      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg space-y-4" data-testid="api-key-modal">
+        <h2 className="text-xl font-semibold" data-testid="api-key-modal-title">APIキー設定</h2>
 
         <div>
           <label className="block font-medium mb-1">
@@ -49,6 +49,7 @@ export function ApiKeyModal({ isOpen, onClose }: Props) {
             onChange={(e) => handleChange(e, "jquants_refresh")}
             className="border p-2 w-full rounded"
             placeholder="J-Quants Refresh Token"
+            data-testid="jquants-refresh-token-input"
           />
           <p className="text-xs text-gray-500 mt-1">
             ※必須。IDトークンの自動更新に利用されます。
@@ -110,6 +111,7 @@ export function ApiKeyModal({ isOpen, onClose }: Props) {
           <button
             onClick={handleSave}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            data-testid="api-key-save-button"
           >
             保存して閉じる
           </button>

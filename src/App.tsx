@@ -13,7 +13,17 @@ import {
   BacktestResponse,
   WorkerMessage,
   TradeRow,
-} from "./types/worker";
+  StrategyAST,
+} from "./types";
+import { v4 as uuidv4 } from "uuid";
+import {
+  Table,
+  tableToIPC,
+  makeVector,
+  DateDay,
+  Float64,
+  Int32,
+} from "apache-arrow";
 
 interface DataConfig {
   codes: string[];
@@ -22,24 +32,75 @@ interface DataConfig {
 }
 
 interface BacktestRunConfig {
-  dsl: StrategyDSL;
+  dsl: StrategyAST;
   codes: string[];
   startDate: string;
   endDate: string;
 }
 
-// Helper function to convert OHLC data to Arrow IPC format (placeholder)
-// This should ideally be in a separate utility file and properly implemented.
+// Helper function to convert OHLC data to Arrow IPC format
 async function convertOhlcToArrow(
   data: Record<string, OHLCFrameJSON>
 ): Promise<Uint8Array> {
-  // In a real scenario, this would involve Apache Arrow JS libraries
-  // For now, returning a dummy Uint8Array
-  console.warn(
-    "convertOhlcToArrow is a placeholder and needs proper implementation."
-  );
-  const placeholderData = JSON.stringify(data);
-  return new TextEncoder().encode(placeholderData);
+  // Take the first stock's data (since we're handling single stock for now)
+  const firstCode = Object.keys(data)[0];
+  if (!firstCode || !data[firstCode]) {
+    throw new Error("No OHLC data provided");
+  }
+
+  const ohlcData = data[firstCode];
+  
+  // Convert to Arrow Table
+  const dates = ohlcData.date.map(d => new Date(d));
+  const opens = ohlcData.open;
+  const highs = ohlcData.high;
+  const lows = ohlcData.low;
+  const closes = ohlcData.close;
+  const volumes = ohlcData.volume;
+
+  // Create Arrow vectors
+  const dateVector = makeVector({
+    type: new DateDay(),
+    data: dates.map(d => Math.floor(d.getTime() / (24 * 60 * 60 * 1000))), // Convert to days since epoch
+  });
+  
+  const openVector = makeVector({
+    type: new Float64(),
+    data: opens,
+  });
+  
+  const highVector = makeVector({
+    type: new Float64(),
+    data: highs,
+  });
+  
+  const lowVector = makeVector({
+    type: new Float64(),
+    data: lows,
+  });
+  
+  const closeVector = makeVector({
+    type: new Float64(),
+    data: closes,
+  });
+  
+  const volumeVector = makeVector({
+    type: new Int32(),
+    data: volumes,
+  });
+
+  // Create Arrow table
+  const table = new Table({
+    date: dateVector,
+    open: openVector,
+    high: highVector,
+    low: lowVector,
+    close: closeVector,
+    volume: volumeVector,
+  });
+
+  // Convert to IPC format
+  return tableToIPC(table);
 }
 
 export default function App() {
@@ -51,9 +112,10 @@ export default function App() {
     message: "",
   });
   const [dataConfig, setDataConfig] = useState<DataConfig | null>(null);
-  const [validatedDsl, setValidatedDsl] = useState<StrategyDSL | null>(null);
+  const [validatedDsl, setValidatedDsl] = useState<StrategyAST | null>(null);
   const [runConfig, setRunConfig] = useState<BacktestRunConfig | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isBacktestLoading, setIsBacktestLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [ohlcData, setOhlcData] = useState<Record<string, OHLCFrameJSON>>({});
   const [showDsl, setShowDsl] = useState(false);
@@ -89,10 +151,12 @@ export default function App() {
   const handleDataConfigSubmit = useCallback(
     async (codes: string[], startDate: string, endDate: string) => {
       if (!apiKeys.jquants_refresh) {
-        alert(
-          "J-Quants Refresh Tokenが設定されていません。設定画面を開いてください。"
+        // E0001: J-Quants APIキー (Refresh Token) 未設定
+        setDataError(
+          "E2001: J-Quants Refresh Tokenが設定されていません。設定画面を開いてください。"
         );
         setIsApiKeyModalOpen(true);
+        setProgress({ value: 0, message: "APIキー未設定" }); // プログレスもリセット
         return;
       }
 
@@ -113,8 +177,9 @@ export default function App() {
           );
           currentIdToken = refreshResult.newIdToken;
         } else {
+          // E0002: J-Quants API IDトークン取得失敗
           setDataError(
-            "J-Quants IDトークンの取得に失敗しました。Refresh Tokenを確認してください。"
+            "E2002: J-Quants IDトークンの取得/更新に失敗しました。Refresh Tokenを確認してください。"
           );
           setProgress({ value: 100, message: "IDトークン取得失敗" });
           setIsApiKeyModalOpen(true);
@@ -126,6 +191,8 @@ export default function App() {
       setIsLoadingData(true);
       setDataError(null);
       setOhlcData({});
+      setBacktestResult(null);
+      setBacktestError(null);
       setProgress({
         value: 5,
         message: "データ取得設定完了。OHLCデータ取得開始...",
@@ -161,35 +228,39 @@ export default function App() {
         });
 
         if (successfulFetches === 0) {
+          // E0003: J-Quants APIデータ取得失敗 (全件失敗)
           setDataError(
-            "指定された全ての銘柄・期間のデータを取得できませんでした。APIキーや銘柄コード、期間を確認してください。"
+            "E2003: 指定された全ての銘柄・期間のOHLCデータを取得できませんでした。APIキー、銘柄コード、期間を確認してください。"
           );
           handleProgressUpdate(100, "データ取得失敗");
           setIsLoadingData(false);
           return;
         } else if (successfulFetches < codes.length) {
+          // E0003: 部分的なデータ取得失敗 (警告に近いが、エラーとしても表示)
           setDataError(
-            `一部の銘柄のデータ取得に失敗しました。取得成功: ${successfulFetches}/${codes.length}`
+            `E2003: 一部の銘柄のOHLCデータ取得に失敗しました。取得成功: ${successfulFetches}/${codes.length}. 詳細はコンソールを確認してください。`
           );
-          // Continue with successfully fetched data
+          // データ取得は継続するがエラーメッセージは表示
         }
 
         setOhlcData(newOhlcData);
         handleProgressUpdate(55, "データ取得・処理完了。戦略定義待機中...");
 
         if (validatedDsl) {
-          handleProgressUpdate(70, "戦略定義済み。バックテスト開始...");
           setRunConfig({
             dsl: validatedDsl,
-            codes: Object.keys(newOhlcData), // Use only codes for which data was fetched
+            codes: Object.keys(newOhlcData),
             startDate,
             endDate,
           });
         }
       } catch (error: any) {
         console.error("Data fetching process error:", error);
+        // E0003: その他のデータ取得プロセスエラー
         setDataError(
-          `データ取得プロセスエラー: ${error.message || String(error)}`
+          `E2003: OHLCデータ取得プロセス中にエラーが発生しました: ${
+            error.message || String(error)
+          }`
         );
         handleProgressUpdate(100, "データ取得中にエラー発生");
       } finally {
@@ -200,16 +271,17 @@ export default function App() {
   );
 
   const handleStrategyValidated = useCallback(
-    (dsl: StrategyDSL) => {
+    (dsl: StrategyAST) => {
       setValidatedDsl(dsl);
-      setShowDsl(true); // Show DSL upon validation
+      setShowDsl(true);
+      setBacktestResult(null);
+      setBacktestError(null);
       handleProgressUpdate(60, "戦略検証完了。バックテスト準備中...");
 
       if (dataConfig && Object.keys(ohlcData).length > 0) {
-        handleProgressUpdate(70, "データ取得済み。バックテスト開始...");
         setRunConfig({
           dsl,
-          codes: Object.keys(ohlcData), // Ensure we use codes for which data exists
+          codes: Object.keys(ohlcData),
           startDate: dataConfig.startDate,
           endDate: dataConfig.endDate,
         });
@@ -227,24 +299,31 @@ export default function App() {
     setWorker(newWorker);
 
     newWorker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-      const { data } = event;
-      if (data.type === "result") {
+      const data = event.data;
+
+      if (data.type === "progress") {
+        setProgress({ value: data.progress ?? 0, message: data.message ?? "" });
+      } else if (data.type === "result") {
         setBacktestResult(data);
         setBacktestError(null);
+        setIsBacktestLoading(false);
         setProgress({ value: 100, message: "バックテスト完了" });
-      } else if (data.type === "progress") {
-        setProgress({ value: data.progress, message: data.message || "" });
       } else if (data.type === "error") {
         setBacktestError(data.message);
         setBacktestResult(null);
+        setIsBacktestLoading(false);
         setProgress({ value: 100, message: `エラー: ${data.message}` });
       }
     };
 
-    newWorker.onerror = (error) => {
-      console.error("Worker error:", error);
-      setBacktestError(`Worker Error: ${error.message}`);
+    newWorker.onerror = (errorEvent) => {
+      console.error("Worker error:", errorEvent);
+      // E0008: Worker初期化失敗
+      setBacktestError(
+        `E0008: Workerとの通信確立または初期化に失敗しました: ${errorEvent.message}`
+      );
       setBacktestResult(null);
+      setIsBacktestLoading(false);
       setProgress({
         value: 100,
         message: "Workerで致命的なエラーが発生しました。",
@@ -255,55 +334,98 @@ export default function App() {
       newWorker.terminate();
       setWorker(null);
     };
-  }, []); // Empty dependency array to run only on mount and unmount
+  }, []);
 
   // Effect to run backtest when runConfig changes
   useEffect(() => {
-    if (runConfig && worker && Object.keys(ohlcData).length > 0) {
-      // Clear previous results/errors
-      setBacktestResult(null);
-      setBacktestError(null);
-      setProgress({
-        value: 75,
-        message: "バックテスト実行準備中...Arrow変換開始",
-      });
-
-      // TODO: Implement actual OHLC to Arrow IPC conversion
-      // For now, using a placeholder function.
-      convertOhlcToArrow(ohlcData)
-        .then((arrowBuffer) => {
-          if (!runConfig) return; // type guard
-          setProgress({
-            value: 80,
-            message: "Arrow変換完了。Workerへ送信中...",
-          });
-          const request: BacktestRequest = {
-            req_id: crypto.randomUUID(),
-            sql: "", // Placeholder: SQL should be generated from DSL by a compiler
-            arrow: arrowBuffer,
-            params: {
-              initCash: runConfig.dsl.cash || 1000000,
-              slippageBp: runConfig.dsl.slippage_bp || 3,
-            },
-          };
-          // TODO: SQL generation from DSL (runConfig.dsl) is needed here.
-          // The current `request.sql` is empty.
-          console.log("Sending request to worker:", request);
-          worker.postMessage(request, [request.arrow.buffer]);
-          setProgress({ value: 85, message: "バックテスト実行中..." });
-        })
-        .catch((err) => {
-          console.error(
-            "Error converting data to Arrow or posting to worker:",
-            err
-          );
-          setBacktestError(
-            "データ変換またはWorkerへの送信中にエラー: " + err.message
-          );
-          setProgress({ value: 100, message: "エラーが発生しました。" });
-        });
+    if (!runConfig || !worker || Object.keys(ohlcData).length === 0) {
+      if (
+        isBacktestLoading &&
+        (!runConfig || Object.keys(ohlcData).length === 0)
+      ) {
+        setIsBacktestLoading(false);
+        if (!runConfig)
+          setProgress((prev) => ({
+            ...prev,
+            message: "戦略が定義されていません。",
+          }));
+        if (Object.keys(ohlcData).length === 0)
+          setProgress((prev) => ({
+            ...prev,
+            message: "OHLCデータがありません。",
+          }));
+      }
+      return;
     }
-  }, [runConfig, worker, ohlcData]); // Dependencies
+
+    setIsBacktestLoading(true);
+    setBacktestResult(null);
+    setBacktestError(null);
+    handleProgressUpdate(75, "バックテスト準備中 (Arrowデータ変換開始)...");
+
+    const targetCode = runConfig.dsl.universe[0];
+    const ohlcFrame = ohlcData[targetCode];
+
+    if (!ohlcFrame) {
+      setBacktestError(`銘柄 ${targetCode} のOHLCデータが見つかりません。`);
+      setIsBacktestLoading(false);
+      handleProgressUpdate(100, "データエラー");
+      return;
+    }
+
+    let arrowBuffer: ArrayBuffer;
+    try {
+      const dateTimestamps = ohlcFrame.index.map((dateStr) =>
+        new Date(dateStr).getTime()
+      );
+      const opens = Float64Array.from(
+        ohlcFrame.data.map((row) => row[0] ?? NaN)
+      );
+      const highs = Float64Array.from(
+        ohlcFrame.data.map((row) => row[1] ?? NaN)
+      );
+      const lows = Float64Array.from(
+        ohlcFrame.data.map((row) => row[2] ?? NaN)
+      );
+      const closes = Float64Array.from(
+        ohlcFrame.data.map((row) => row[3] ?? NaN)
+      );
+      const volumes = Int32Array.from(ohlcFrame.data.map((row) => row[4] ?? 0));
+
+      const table = new Table({
+        date: makeVector({ data: dateTimestamps, type: new DateDay() }),
+        open: makeVector({ data: opens, type: new Float64() }),
+        high: makeVector({ data: highs, type: new Float64() }),
+        low: makeVector({ data: lows, type: new Float64() }),
+        close: makeVector({ data: closes, type: new Float64() }),
+        volume: makeVector({ data: volumes, type: new Int32() }),
+      });
+      const arrowUint8Array = tableToIPC(table, "file");
+      arrowBuffer = new Uint8Array(arrowUint8Array).buffer;
+      handleProgressUpdate(85, "Arrowデータ変換完了。バックテスト実行中...");
+    } catch (e: any) {
+      // E0009: OHLCデータ → Arrow変換失敗
+      setBacktestError(
+        `E0009: OHLCデータのArrow IPC形式への変換に失敗しました: ${e.message}`
+      );
+      setIsBacktestLoading(false);
+      handleProgressUpdate(100, "データ変換エラー");
+      return;
+    }
+
+    const req_id = uuidv4();
+    const request: BacktestRequest = {
+      req_id,
+      dsl_ast: runConfig.dsl,
+      arrow: new Uint8Array(arrowBuffer),
+      params: {
+        initCash: runConfig.dsl.cash || 1000000,
+        slippageBp: runConfig.dsl.slippage_bp || 3,
+      },
+    };
+
+    worker.postMessage(request, [arrowBuffer]);
+  }, [runConfig, worker, ohlcData, handleProgressUpdate]);
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -354,7 +476,7 @@ export default function App() {
                       setDataConfig(null);
                       setOhlcData({});
                       setRunConfig(null);
-                      setValidatedDsl(null); // Reset strategy as well
+                      setValidatedDsl(null);
                       setProgress({ value: 0, message: "" });
                     }}
                     className="text-blue-600 hover:text-blue-800"
@@ -394,8 +516,8 @@ export default function App() {
           <section className="space-y-4">
             <h2 className="text-xl font-semibold">2. 戦略の定義</h2>
             <StrategyEditor
-              onStrategyValidate={handleStrategyValidated}
-              initialDsl={validatedDsl} // Pass validatedDsl to potentially re-populate editor
+              onStrategySubmit={handleStrategyValidated}
+              apiKey={apiKeys.openai}
             />
             {showDsl && validatedDsl && (
               <div className="mt-4 p-3 bg-gray-100 rounded">
@@ -407,18 +529,32 @@ export default function App() {
             )}
           </section>
 
-          {(runConfig || backtestResult || backtestError) && (
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold">3. バックテスト結果</h2>
-              {backtestResult && <BacktestResults results={backtestResult} />}
-              {backtestError && (
-                <div className="p-4 bg-red-100 text-red-700 rounded">
-                  <p className="font-bold">エラー:</p>
-                  <p>{backtestError}</p>
-                </div>
-              )}
-            </section>
-          )}
+          {(isBacktestLoading || backtestResult || backtestError) &&
+            runConfig && (
+              <section className="space-y-4">
+                <h2 className="text-xl font-semibold">3. バックテスト結果</h2>
+                {backtestResult && (
+                  <BacktestResults
+                    dsl={runConfig.dsl}
+                    codes={runConfig.codes}
+                    startDate={runConfig.startDate}
+                    endDate={runConfig.endDate}
+                    apiKey={apiKeys.openai || ""}
+                    ohlcDataProp={ohlcData}
+                    onProgressUpdate={handleProgressUpdate}
+                    backtestResponse={backtestResult}
+                    isLoading={isBacktestLoading}
+                    error={backtestError}
+                  />
+                )}
+                {backtestError && (
+                  <div className="p-4 bg-red-100 text-red-700 rounded">
+                    <p className="font-bold">エラー:</p>
+                    <p>{backtestError}</p>
+                  </div>
+                )}
+              </section>
+            )}
         </>
       )}
     </div>

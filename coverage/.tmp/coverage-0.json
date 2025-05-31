@@ -1,0 +1,1 @@
+{"result":[{"scriptId":"740","url":"file:///home/takeru/react_projects/backtest-app/src/lib/bundle-size.test.ts","functions":[{"functionName":"","ranges":[{"startOffset":0,"endOffset":417,"count":1}],"isBlockCoverage":true},{"functionName":"","ranges":[{"startOffset":13,"endOffset":417,"count":1}],"isBlockCoverage":true}]}]}

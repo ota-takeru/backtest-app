@@ -1,0 +1,38 @@
+{
+  "description": "Dummy test case for RSI strategy",
+  "entry": {
+    "ast": {
+      "type": "Binary",
+      "op": "<",
+      "left": {
+        "type": "Func",
+        "name": "rsi",
+        "args": [14]
+      },
+      "right": {
+        "type": "Value",
+        "kind": "NUMBER",
+        "value": 30
+      }
+    },
+    "timing": "next_open"
+  },
+  "exit": {
+    "ast": {
+      "type": "Binary",
+      "op": ">",
+      "left": {
+        "type": "Func",
+        "name": "rsi",
+        "args": [14]
+      },
+      "right": {
+        "type": "Value",
+        "kind": "NUMBER",
+        "value": 70
+      }
+    },
+    "timing": "current_close"
+  },
+  "universe": ["1234.T"]
+}

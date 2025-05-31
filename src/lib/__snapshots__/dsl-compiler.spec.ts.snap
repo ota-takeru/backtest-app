@@ -1,3 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`DSL Compiler - From Fixture > should compile simple-ma-cross.json and match snapshot 1`] = `"SELECT * FROM \`dummy_ohlc\` WHERE avg(close) OVER (ORDER BY date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) > avg(close) OVER (ORDER BY date ROWS BETWEEN 19 PRECEDING AND CURRENT ROW);"`;

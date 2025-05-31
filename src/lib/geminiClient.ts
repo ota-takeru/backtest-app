@@ -1,179 +1,139 @@
-import { StrategySchema, StrategyDSL } from "./dslSchema";
-
-function buildStubStrategy(prompt: string): StrategyDSL {
-  return {
-    meta: {
-      dsl_version: "1.0",
-      created_at: new Date().toISOString(),
-    },
-    data_source: "jquants_v1",
-    universe: ["1301.T"],
-    cash: 1_000_000,
-    entry: {
-      condition: "rsi(14) < 30",
-      timing: "next_open",
-    },
-    exit: {
-      condition: "rsi(14) > 70",
-      timing: "current_close",
-    },
-    stop_loss: {
-      type: "percent",
-      value: 0.1,
-    },
-    take_profit: null,
-    position: {
-      size_type: "all_cash",
-      value: null,
-    },
-    indicators: {
-      rsi: [14],
-    },
-  };
-}
+import { strategyASTSchema, StrategyAST } from "../types/dslSchema";
+// @ts-ignore no type declarations
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 export async function buildStrategyFromPrompt(
   prompt: string,
-  stockCodes?: string[]
-): Promise<{ ok: true; strategy: StrategyDSL } | { ok: false; error: string }> {
+  apiKey: string
+): Promise<{ ok: true; strategy: StrategyAST } | { ok: false; error: string }> {
   try {
-    const key =
-      sessionStorage.getItem("gemini_api_key") ||
-      import.meta.env.VITE_GEMINI_API_KEY;
-    if (!key) {
+    if (!apiKey) {
       return {
         ok: false,
         error:
-          "Gemini APIキーが設定されていません。UIまたは環境変数 VITE_GEMINI_API_KEY で設定してください。",
+          "Gemini APIキーが設定されていません。UIのAPIキー設定から設定してください。",
       };
     }
 
-    let userPrompt = prompt;
-    if (stockCodes && stockCodes.length > 0) {
-      const stockCodesString = stockCodes.join(", ");
-      userPrompt = `以下の銘柄コードを対象とした戦略を記述してください: [${stockCodesString}]\\n\\n${prompt}`;
-    }
+    const userPrompt = prompt;
 
     // @ts-ignore Remote ESM import no types
     const importedModule = await import(
-      /* webpackIgnore: true */ "https://esm.sh/@google/genai@latest?bundle"
+      /* webpackIgnore: true */ "https://esm.sh/@google/generative-ai@latest?bundle"
     );
-    console.log("Imported module:", importedModule);
-    // GoogleGenAIの取得方法を修正 (ログに基づき importedModule.GoogleGenAI を試す)
-    const GoogleGenerativeAI = importedModule.GoogleGenAI;
-    console.log("GoogleGenerativeAI constructor attempt:", GoogleGenerativeAI);
+    const GoogleGenerativeAI = importedModule.GoogleGenerativeAI;
 
-    if (!GoogleGenerativeAI) {
+    if (!GoogleGenerativeAI || typeof GoogleGenerativeAI !== "function") {
       return {
         ok: false,
-        error:
-          "GoogleGenerativeAI がインポートできませんでした。importedModule.GoogleGenAI を確認してください。",
-      };
-    }
-    if (typeof GoogleGenerativeAI !== "function") {
-      return {
-        ok: false,
-        error:
-          "GoogleGenerativeAI は関数ではありません。コンストラクタとして使用できません。",
+        error: "GoogleGenerativeAIのインポートまたは初期化に失敗しました。",
       };
     }
 
-    const genAI = new GoogleGenerativeAI({ apiKey: key });
-    // console.log("genAI instance:", genAI); // genAIインスタンスの内容を確認
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const jsonSchemaForTool = zodToJsonSchema(
+      strategyASTSchema,
+      "strategyASTSchema"
+    );
 
-    const exampleStrategy = buildStubStrategy(""); // プロンプトは空で良い
-    // もし stockCodes があれば、exampleStrategy の universe も更新する
-    // if (stockCodes && stockCodes.length > 0) { // このロジックはシステムプロンプトの指示と重複するためコメントアウトまたは削除検討
-    //   exampleStrategy.universe = stockCodes;
-    // }
-    exampleStrategy.universe = []; // システムプロンプトの例では universe を空にする
-    const exampleJsonString = JSON.stringify(exampleStrategy, null, 2);
+    const tools = [
+      {
+        functionDeclarations: [
+          {
+            name: "build_json_ast_dsl_strategy",
+            description:
+              "ユーザーの自然言語戦略をJSON-AST-DSL形式に変換します。",
+            parameters: jsonSchemaForTool,
+          },
+        ],
+      },
+    ];
 
-    const systemPrompt =
-      "You are a strategy compiler. Convert the user strategy written in Japanese natural language into the exact JSON that follows the Strategy-DSL v1.0 schema. " +
-      "The JSON output MUST include the following top-level keys: 'meta', 'data_source', 'universe', 'cash', 'entry', 'exit', 'stop_loss', 'take_profit', 'position', 'indicators'. " +
-      "The 'universe' field in the output JSON MUST be an array of stock codes derived EXCLUSIVELY from the user's request. If the user provides specific stock codes, you MUST use them. If no stock codes are provided by the user, output an empty array [] for 'universe'. Do NOT use example codes like '1301.T' unless they are explicitly part of the user's request. " +
-      "Never omit mandatory keys nor introduce new ones. Ensure 'data_source' is always 'jquants_v1'. " +
-      "The 'meta.dsl_version' must be '1.0'. 'meta.created_at' must be an ISO string. 'cash' must be a number. 'entry.condition' must be a string. 'entry.timing' must be 'next_open' or 'next_close'. 'exit.condition' must be a string or empty string. 'exit.timing' must be 'current_close' or 'intraday'. 'stop_loss.type' must be 'percent' or 'value'. 'position.size_type' must be 'all_cash', 'fixed', or 'percent'. 'position.value' must be a number or null. 'indicators' must be an object. " +
-      "Here is an example of the expected JSON structure (note: the 'universe' in this example is intentionally empty; your output should populate it based on the user's request):\\n" +
-      "```json\\n" +
-      exampleJsonString +
-      "\\n```\\n" +
-      "Ensure your output strictly follows this schema and instructions, especially for the 'universe' field, which must be based on the user's input.";
-
-    // モデルの初期化時にsystemInstructionオプションを使用
-    // const model = genAI.getGenerativeModel({ // ここでエラーが発生していた
-    //   model: "gemini-1.5-pro-latest",
-    //   systemInstruction: systemPrompt,
-    // });
-
-    // generateContentにはユーザープロンプトのみを渡す
-    // const result = await model.generateContent(prompt);
-
-    // genAI.models.generateContent を直接呼び出すように修正
-    const result = await genAI.models.generateContent({
-      model: "gemini-2.5-flash-preview-05-20", // モデル名を元に戻す
-      contents: [
-        { role: "user", parts: [{ text: systemPrompt }] },
-        { role: "user", parts: [{ text: userPrompt }] }, // 修正された userPrompt を使用
-      ],
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash-latest",
+      tools: tools,
     });
 
-    // result オブジェクト自体がレスポンスであると仮定して修正
-    // console.log("Gemini API raw result:", JSON.stringify(result, null, 2)); // デバッグ用にresult全体をログ出力
+    const systemInstruction =
+      "あなたは戦略コンパイラです。ユーザーが日本語で記述した戦略を、指定されたJSON-AST-DSLスキーマに厳密に従ってJSON形式に変換し、build_json_ast_dsl_strategy関数を呼び出して結果を返してください。必須キーを省略したり、スキーマにない新しいキーを追加したりしないでください。\n\nJSON-AST-DSLスキーマの概要:\n- ルートオブジェクトは entry, exit, universe を必須プロパティとして持ちます。\n- entry と exit は ast (戦略のロジックを表す抽象構文木) と timing (実行タイミング) を持ちます。\n- entryのtimingは 'next_open' または 'close' です。exitのtimingは 'current_close' です。\n- ast は Logical (AND/OR), Binary (>, <, == など), Func (ma, rsi, atr), Value (数値や価格など) のノードで構成されます。\n- universe は対象銘柄コードの配列です (例: [\"7203.T\"])。ユーザーの指示に基づいて設定してください。指示がない場合は空配列にしてください。\n- cash (初期資金) と slippage_bp (スリッページ) はオプショナルです。デフォルト値はスキーマに従います。";
 
-    let text;
-    if (
-      result.candidates &&
-      result.candidates[0] &&
-      result.candidates[0].content &&
-      result.candidates[0].content.parts &&
-      result.candidates[0].content.parts[0] &&
-      typeof result.candidates[0].content.parts[0].text === "string"
-    ) {
-      text = result.candidates[0].content.parts[0].text;
-    } else if (typeof result.text === "function") {
-      text = result.text();
-    } else if (typeof result.text === "string") {
-      text = result.text;
+    const chat = model.startChat({
+      history: [{ role: "user", parts: [{ text: systemInstruction }] }],
+      generationConfig: {},
+    });
+
+    const result = await chat.sendMessage(userPrompt);
+    const response = result.response;
+
+    const functionCalls = response.functionCalls();
+    if (functionCalls && functionCalls.length > 0) {
+      const call = functionCalls[0];
+      if (call.name === "build_json_ast_dsl_strategy") {
+        const parsedArgs = call.args;
+        const validation = strategyASTSchema.safeParse(parsedArgs);
+        if (validation.success) {
+          return { ok: true, strategy: validation.data };
+        } else {
+          const errorMessages = validation.error.errors
+            .map((err) => `${err.path.join(".")} (${err.code}): ${err.message}`)
+            .join("; ");
+          return {
+            ok: false,
+            error: `E1001 (スキーマ検証エラー): ${errorMessages}`,
+          };
+        }
+      } else {
+        return {
+          ok: false,
+          error: `予期しない関数呼び出しを受け取りました: ${call.name}`,
+        };
+      }
     } else {
-      // 予期しない構造の場合、詳細なエラーとレスポンス全体をログに出力
-      console.error(
-        "Unexpected response structure from Gemini API. Cannot extract text. Full result:",
-        JSON.stringify(result, null, 2)
-      );
-      throw new Error(
-        "Unexpected response structure from Gemini API. Check logs for details."
-      );
+      let textResponse = response.text();
+      if (textResponse) {
+        console.warn(
+          "GeminiがFunction Callではなくテキスト応答を返しました。内容:",
+          textResponse
+        );
+        try {
+          const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsedTextJson = JSON.parse(jsonMatch[0]);
+            const validation = strategyASTSchema.safeParse(parsedTextJson);
+            if (validation.success) {
+              console.warn(
+                "テキスト応答からのJSONパースに成功しましたが、Function Callingの使用を推奨します。"
+              );
+              return { ok: true, strategy: validation.data };
+            }
+          }
+        } catch (e) {
+          /* パース失敗は無視 */
+        }
+        return {
+          ok: false,
+          error:
+            "LLMが期待する関数呼び出しを行いませんでした。テキスト応答: " +
+            textResponse.substring(0, 200),
+        };
+      } else {
+        return {
+          ok: false,
+          error: "LLMが関数呼び出しもテキスト応答も返しませんでした。",
+        };
+      }
     }
-
-    if (typeof text !== "string") {
-      console.error(
-        "Extracted text is not a string. Full result:",
-        JSON.stringify(result, null, 2)
-      );
-      throw new Error(
-        "Extracted text from Gemini API response is not a string."
-      );
-    }
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Gemini returned no JSON");
-    const parsed = JSON.parse(jsonMatch[0]);
-    const validation = StrategySchema.safeParse(parsed);
-    if (validation.success) {
-      console.log(
-        "Generated strategy from Gemini. Universe:",
-        JSON.stringify(validation.data.universe)
-      ); // デバッグログ追加
-      return { ok: true, strategy: validation.data } as const;
-    }
-    return { ok: false, error: `E1001: ${validation.error.message}` } as const;
   } catch (err: any) {
-    console.error("Gemini API call failed:", err);
+    console.error("Gemini API呼び出し失敗:", err);
+    let errorMessage = "Gemini API呼び出しエラー";
+    if (err.message) errorMessage += `: ${err.message}`;
+    if (err.details) errorMessage += ` (Details: ${err.details})`;
+    if (err.httpErrorCode)
+      errorMessage += ` (HTTP Status: ${err.httpErrorCode})`;
+
     return {
       ok: false,
-      error: `Gemini API呼び出しエラー: ${err.message || String(err)}`,
+      error: errorMessage,
     };
   }
 }

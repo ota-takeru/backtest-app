@@ -82,9 +82,9 @@ export function StockPeriodSelector({ onSubmit }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" data-testid="stock-period-selector">
       <div>
-        <h3 className="font-medium mb-2">銘柄選択</h3>
+        <h3 className="font-medium mb-2" data-testid="stock-selection-title">銘柄選択</h3>
         <div className="flex space-x-2">
           <input
             type="text"
@@ -93,11 +93,13 @@ export function StockPeriodSelector({ onSubmit }: Props) {
             onKeyPress={handleKeyPress}
             placeholder="銘柄コード（例: 7203.T）"
             className="border p-2 flex-1 rounded"
+            data-testid="stock-code-input"
           />
           <button
             type="button"
             onClick={handleAddCode}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            data-testid="add-stock-button"
           >
             追加
           </button>
@@ -138,6 +140,7 @@ export function StockPeriodSelector({ onSubmit }: Props) {
             onChange={(e) => setStartDate(e.target.value)}
             className="border p-2 w-full rounded"
             required
+            data-testid="start-date-input"
           />
         </div>
 
@@ -152,6 +155,7 @@ export function StockPeriodSelector({ onSubmit }: Props) {
             onChange={(e) => setEndDate(e.target.value)}
             className="border p-2 w-full rounded"
             required
+            data-testid="end-date-input"
           />
         </div>
       </div>
@@ -161,6 +165,7 @@ export function StockPeriodSelector({ onSubmit }: Props) {
           type="submit"
           className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
           disabled={selectedCodes.length === 0}
+          data-testid="fetch-data-button"
         >
           データ取得開始
         </button>
