@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/consistent-type-definitions */
 
-import { StrategyAST } from "../types";
+import {
+  StrategyAST,
+  BacktestRequest,
+  BacktestResponse,
+  TradeRow,
+} from "../types";
 
 // REQUIREMENTS.md §3.1 JSON Schema を参照
 export interface StrategyDSL {
@@ -43,37 +48,6 @@ export interface OHLCFrameJSON {
   columns: string[]; // e.g., ["Date", "Open", "High", "Low", "Close", "Volume"]
   index: string[]; // ISO8601 date strings
   data: (number | null)[][]; // Volumeがnullになるケースを考慮
-}
-
-// REQUIREMENTS.md §5 を参照
-export interface BacktestRequest {
-  req_id: string; // Workerとの通信でリクエストとレスポンスを紐付けるID
-  dsl_ast: StrategyAST; // JSON-AST-DSL (changed from sql to dsl_ast)
-  arrow: Uint8Array; // Arrow IPC形式のテーブル: ohlc (date, open, ...)
-  params: {
-    initCash: number;
-    slippageBp: number;
-  };
-}
-
-// REQUIREMENTS.md §5 を参照
-// export interface TradeRow { /* 詳細な取引情報をここに定義 */ } // TODO: 具体的なTradeRowの型定義
-export type TradeRow = any; // 一旦anyで
-
-export interface BacktestResponse {
-  req_id: string; // 対応するリクエストID
-  metrics: {
-    cagr: number;
-    maxDd: number; // Max Drawdown
-    sharpe: number; // Sharpe Ratio
-    // Trades は削除
-  };
-  equityCurve: {
-    date: string; // ISO-8601
-    equity: number;
-  }[];
-  trades: TradeRow[]; // 詳細なフィル情報、1行が1トレードに対応
-  warnings?: string[]; // REQUIREMENTS.md にはないが、エラー以外の警告通知用として便利なのでオプショナルで残す
 }
 
 export interface ProgressMessage {

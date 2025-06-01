@@ -100,7 +100,9 @@ _記号慣例_ — `[...]` はオプション、`|` は選択肢。
       "required": ["type", "name", "args"],
       "properties": {
         "type": { "const": "Func" },
-        "name": { "enum": ["ma", "rsi", "atr"] },
+        "name": {
+          "enum": ["ma", "rsi", "atr", "lag", "shift", "stop_high", "stop_low"]
+        },
         "args": {
           "type": "array",
           "items": {
@@ -121,7 +123,15 @@ _記号慣例_ — `[...]` はオプション、`|` は選択肢。
         "value": {
           "oneOf": [
             {
-              "enum": ["price", "entry_price", "high", "low", "close", "volume"]
+              "enum": [
+                "price",
+                "entry_price",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "open"
+              ]
             },
             { "type": "number" }
           ]
@@ -333,3 +343,8 @@ PRAGMA enable_progress_bar;
 1. マルチ銘柄対応 (Universe>1)
 2. EMA, Bollinger Bands など関数多様化
 3. stop_loss, take_profit 再導入
+4. ストップ高/ストップ安戦略の完全サポート
+5. 前日データ参照 (lag/shift 関数) の実装
+6. ショートポジション対応
+7. 戦略パフォーマンス分析の高度化
+8. 自然言語 →AST 変換の精度向上

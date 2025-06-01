@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { refreshJQuantsIdTokenLogic } from "../lib/fetchJQuants";
 
 export interface ApiKeys {
   gemini: string;
@@ -40,6 +41,31 @@ export function useApiKeys() {
   const updateKeys = (newKeys: Partial<ApiKeys>) => {
     setKeys((prev) => ({ ...prev, ...newKeys }));
   };
+
+  // Auto-fetch ID token when refresh token is available but ID token is missing
+  useEffect(() => {
+    const fetchIdToken = async () => {
+      if (keys.jquants_refresh && !keys.jquants_id) {
+        console.log("Attempting to fetch ID token using refresh token...");
+        try {
+          const result = await refreshJQuantsIdTokenLogic(keys.jquants_refresh);
+          if (result && result.newIdToken) {
+            updateKeys({
+              jquants_id: result.newIdToken,
+              ...(result.newRefreshToken && {
+                jquants_refresh: result.newRefreshToken,
+              }),
+            });
+            console.log("ID token successfully fetched and stored");
+          }
+        } catch (error) {
+          console.error("Failed to fetch ID token:", error);
+        }
+      }
+    };
+
+    fetchIdToken();
+  }, [keys.jquants_refresh, keys.jquants_id]);
 
   return {
     keys,

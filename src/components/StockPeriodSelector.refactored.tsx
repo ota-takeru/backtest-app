@@ -5,13 +5,9 @@ import { getDefaultDateRange, validateDateRange } from "../lib/dateUtils";
 
 interface StockPeriodSelectorProps {
   onSubmit: (codes: string[], start: string, end: string) => void;
-  isLoading?: boolean;
 }
 
-export function StockPeriodSelector({
-  onSubmit,
-  isLoading = false,
-}: StockPeriodSelectorProps) {
+export function StockPeriodSelector({ onSubmit }: StockPeriodSelectorProps) {
   // Initialize with default values
   const { startDate: defaultStartDate, endDate: defaultEndDate } =
     getDefaultDateRange();
@@ -58,10 +54,10 @@ export function StockPeriodSelector({
         <button
           type="submit"
           className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-          disabled={selectedCodes.length === 0 || isLoading}
+          disabled={selectedCodes.length === 0}
           data-testid="fetch-data-button"
         >
-          {isLoading ? "データ取得中..." : "データ取得開始"}
+          データ取得開始
         </button>
       </div>
     </form>

@@ -23,7 +23,7 @@ export function ProgressBar({ progress, message }: Props) {
         data-testid="progress-bar-background"
       >
         <div
-          className="bg-blue-600 h-1 transition-all"
+          className="bg-blue-600 h-1 transition-all duration-300 ease-out"
           style={{ width: `${progress}%` }}
           data-testid="progress-bar-fill"
         ></div>

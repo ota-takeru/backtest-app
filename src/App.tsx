@@ -1,443 +1,243 @@
-import { useState, useEffect, useCallback } from "react";
-// import { ApiKeyForm } from "./components/ApiKeyForm"; // No longer used directly
+import React, { useState } from "react";
+import { useApiKeys } from "./hooks/useApiKeys";
+import { useOhlcData } from "./hooks/useOhlcData";
 import { ApiKeyModal } from "./components/ApiKeyModal";
-import { useApiKeys, ApiKeys } from "./hooks/useApiKeys";
-import { StrategyEditor } from "./components/StrategyEditor";
-import { BacktestResults } from "./components/BacktestResults";
 import { StockPeriodSelector } from "./components/StockPeriodSelector";
-import { ProgressBar } from "./components/ProgressBar";
-import { StrategyDSL, OHLCFrameJSON } from "./lib/types";
-import { fetchOHLC, refreshJQuantsIdTokenLogic } from "./lib/fetchJQuants";
-import {
-  BacktestRequest,
-  BacktestResponse,
-  WorkerMessage,
-  TradeRow,
-  StrategyAST,
-} from "./types";
-import { v4 as uuidv4 } from "uuid";
-import {
-  Table,
-  tableToIPC,
-  makeVector,
-  DateDay,
-  Float64,
-  Int32,
-} from "apache-arrow";
-
-interface DataConfig {
-  codes: string[];
-  startDate: string;
-  endDate: string;
-}
-
-interface BacktestRunConfig {
-  dsl: StrategyAST;
-  codes: string[];
-  startDate: string;
-  endDate: string;
-}
-
-// Helper function to convert OHLC data to Arrow IPC format
-async function convertOhlcToArrow(
-  data: Record<string, OHLCFrameJSON>
-): Promise<Uint8Array> {
-  // Take the first stock's data (since we're handling single stock for now)
-  const firstCode = Object.keys(data)[0];
-  if (!firstCode || !data[firstCode]) {
-    throw new Error("No OHLC data provided");
-  }
-
-  const ohlcData = data[firstCode];
-
-  // Convert to Arrow Table
-  const dates = ohlcData.date.map((d) => new Date(d));
-  const opens = ohlcData.open;
-  const highs = ohlcData.high;
-  const lows = ohlcData.low;
-  const closes = ohlcData.close;
-  const volumes = ohlcData.volume;
-
-  // Create Arrow vectors
-  const dateVector = makeVector({
-    type: new DateDay(),
-    data: dates.map((d) => Math.floor(d.getTime() / (24 * 60 * 60 * 1000))), // Convert to days since epoch
-  });
-
-  const openVector = makeVector({
-    type: new Float64(),
-    data: opens,
-  });
-
-  const highVector = makeVector({
-    type: new Float64(),
-    data: highs,
-  });
-
-  const lowVector = makeVector({
-    type: new Float64(),
-    data: lows,
-  });
-
-  const closeVector = makeVector({
-    type: new Float64(),
-    data: closes,
-  });
-
-  const volumeVector = makeVector({
-    type: new Int32(),
-    data: volumes,
-  });
-
-  // Create Arrow table
-  const table = new Table({
-    date: dateVector,
-    open: openVector,
-    high: highVector,
-    low: lowVector,
-    close: closeVector,
-    volume: volumeVector,
-  });
-
-  // Convert to IPC format
-  return tableToIPC(table);
-}
+import { StrategyEditor } from "./components/StrategyEditor";
+import { StrategyAST, AnyNode } from "./types";
 
 export default function App() {
-  const { keys: apiKeys, updateKeys } = useApiKeys();
+  const [step, setStep] = useState(1);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const { keys: apiKeys } = useApiKeys();
+  const { ohlcData, isLoading, error, triggerRefetch } = useOhlcData();
 
-  const [progress, setProgress] = useState<{ value: number; message: string }>({
-    value: 0,
-    message: "",
-  });
-  const [dataConfig, setDataConfig] = useState<DataConfig | null>(null);
-  const [validatedDsl, setValidatedDsl] = useState<StrategyAST | null>(null);
-  const [runConfig, setRunConfig] = useState<BacktestRunConfig | null>(null);
-  const [isLoadingData, setIsLoadingData] = useState(false);
-  const [isBacktestLoading, setIsBacktestLoading] = useState(false);
-  const [dataError, setDataError] = useState<string | null>(null);
-  const [ohlcData, setOhlcData] = useState<Record<string, OHLCFrameJSON>>({});
-  const [showDsl, setShowDsl] = useState(false);
-  const [worker, setWorker] = useState<Worker | null>(null);
-  const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(
-    null
-  );
-  const [backtestError, setBacktestError] = useState<string | null>(null);
+  // データ設定の状態
+  const [dataConfig, setDataConfig] = useState<{
+    codes: string[];
+    startDate: string;
+    endDate: string;
+  } | null>(null);
 
-  // Open modal if JQuants key is not set on initial load
-  useEffect(() => {
-    if (!apiKeys.jquants_refresh) {
-      setIsApiKeyModalOpen(true);
-    }
-  }, [apiKeys.jquants_refresh]);
+  // 戦略の状態
+  const [strategy, setStrategy] = useState<StrategyAST | null>(null);
 
-  const handleJQuantsTokenRefreshed = useCallback(
-    (newIdToken: string, newRefreshToken?: string) => {
-      const updates: Partial<ApiKeys> = { jquants_id: newIdToken };
-      if (newRefreshToken) {
-        updates.jquants_refresh = newRefreshToken;
-      }
-      updateKeys(updates);
-      console.log("App: J-Quants tokens updated in state and session storage.");
-    },
-    [updateKeys]
-  );
+  // AST を人間が読みやすいテキストに変換するヘルパー関数
+  const nodeToText = (node: AnyNode): string => {
+    switch (node.type) {
+      case "Binary":
+        const left = nodeToText(node.left);
+        const right = nodeToText(node.right);
+        const opMap: { [key: string]: string } = {
+          ">": "より大きい",
+          "<": "より小さい",
+          ">=": "以上",
+          "<=": "以下",
+          "==": "等しい",
+          "!=": "等しくない",
+        };
 
-  const handleProgressUpdate = useCallback((value: number, message: string) => {
-    setProgress({ value, message });
-  }, []);
+        // ストップ高の特別検出パターン
+        if (
+          node.op === "==" &&
+          node.left?.type === "Value" &&
+          node.left?.value === "close" &&
+          node.right?.type === "Value" &&
+          node.right?.value === "high"
+        ) {
+          return "ストップ高判定（終値=高値）";
+        }
 
-  const handleDataConfigSubmit = useCallback(
-    async (codes: string[], startDate: string, endDate: string) => {
-      if (!apiKeys.jquants_refresh) {
-        // E0001: J-Quants APIキー (Refresh Token) 未設定
-        setDataError(
-          "E2001: J-Quants Refresh Tokenが設定されていません。設定画面を開いてください。"
-        );
-        setIsApiKeyModalOpen(true);
-        setProgress({ value: 0, message: "APIキー未設定" }); // プログレスもリセット
-        return;
-      }
+        // 常にtrueな条件の検出
+        if (
+          node.op === "==" &&
+          node.left?.type === "Value" &&
+          node.left?.value === 1 &&
+          node.right?.type === "Value" &&
+          node.right?.value === 1
+        ) {
+          return "常に成立する条件（要改善）";
+        }
 
-      // Attempt to get ID token, refresh if necessary and missing
-      let currentIdToken = apiKeys.jquants_id;
-      if (!currentIdToken) {
-        setProgress({
-          value: 1,
-          message: "IDトークン取得中... (初回リフレッシュ)",
-        });
-        const refreshResult = await refreshJQuantsIdTokenLogic(
-          apiKeys.jquants_refresh
-        );
-        if (refreshResult && refreshResult.newIdToken) {
-          handleJQuantsTokenRefreshed(
-            refreshResult.newIdToken,
-            refreshResult.newRefreshToken
-          );
-          currentIdToken = refreshResult.newIdToken;
+        return `${left}が${right}${opMap[node.op] || node.op}`;
+
+      case "Logical":
+        const leftLogical = nodeToText(node.left);
+        const rightLogical = nodeToText(node.right);
+        const logicalOpMap = {
+          AND: "かつ",
+          OR: "または",
+        };
+        return `(${leftLogical}) ${logicalOpMap[node.op]} (${rightLogical})`;
+
+      case "Func":
+        const funcNameMap: { [key: string]: string } = {
+          ma: "移動平均",
+          rsi: "RSI",
+          atr: "ATR",
+          lag: "前日の",
+          shift: "日前の",
+          stop_high: "ストップ高判定",
+          stop_low: "ストップ安判定",
+        };
+        const funcName = funcNameMap[node.name] || node.name;
+
+        if (node.name === "ma" && node.args.length >= 2) {
+          const column =
+            typeof node.args[1] === "object"
+              ? node.args[1].value
+              : node.args[1];
+          const period =
+            typeof node.args[0] === "number" ? node.args[0] : node.args[0];
+          return `${column}の${period}日${funcName}`;
+        } else if (node.name === "rsi" || node.name === "atr") {
+          const period =
+            typeof node.args[0] === "number" ? node.args[0] : node.args[0];
+          return `${period}日${funcName}`;
+        } else if (node.name === "lag" && node.args.length >= 1) {
+          const column =
+            typeof node.args[0] === "object"
+              ? nodeToText(node.args[0])
+              : node.args[0];
+          const days = node.args[1] || 1;
+          return `${days}日前の${column}`;
+        } else if (node.name === "stop_high") {
+          return "ストップ高判定";
+        } else if (node.name === "stop_low") {
+          return "ストップ安判定";
+        }
+
+        return `${funcName}(${node.args.join(", ")})`;
+
+      case "Value":
+        if (node.kind === "NUMBER") {
+          return node.value.toString();
         } else {
-          // E0002: J-Quants API IDトークン取得失敗
-          setDataError(
-            "E2002: J-Quants IDトークンの取得/更新に失敗しました。Refresh Tokenを確認してください。"
-          );
-          setProgress({ value: 100, message: "IDトークン取得失敗" });
-          setIsApiKeyModalOpen(true);
-          return;
+          const identMap: { [key: string]: string } = {
+            close: "終値",
+            open: "始値",
+            high: "高値",
+            low: "安値",
+            volume: "出来高",
+            price: "価格",
+            entry_price: "エントリー価格",
+          };
+          return identMap[node.value as string] || node.value.toString();
         }
-      }
 
-      setDataConfig({ codes, startDate, endDate });
-      setIsLoadingData(true);
-      setDataError(null);
-      setOhlcData({});
-      setBacktestResult(null);
-      setBacktestError(null);
-      setProgress({
-        value: 5,
-        message: "データ取得設定完了。OHLCデータ取得開始...",
-      });
+      default:
+        return "不明な条件";
+    }
+  };
 
-      try {
-        const ohlcPromises = codes.map((code, index) =>
-          fetchOHLC(
-            currentIdToken!,
-            apiKeys.jquants_refresh,
-            handleJQuantsTokenRefreshed,
-            code,
-            startDate,
-            endDate
-          ).then((frame) => {
-            handleProgressUpdate(
-              5 + ((index + 1) / codes.length) * 45,
-              `OHLCデータ取得中: ${code} (${index + 1}/${codes.length})`
-            );
-            return frame;
-          })
+  const strategyToText = (strategy: StrategyAST) => {
+    const entryCondition = nodeToText(strategy.entry.ast);
+    const exitCondition = nodeToText(strategy.exit.ast);
+
+    // 複雑な戦略パターンの検出と解釈
+    let strategyType = "一般的な戦略";
+    let warnings: string[] = [];
+    let improvements: string[] = [];
+    let interpretation = "";
+
+    // ストップ高戦略の検出
+    if (exitCondition.includes("ストップ高判定")) {
+      strategyType = "ストップ高戦略";
+      interpretation = "ストップ高になった銘柄を空売りし、翌日買い戻す戦略";
+
+      if (entryCondition.includes("常に成立する条件")) {
+        warnings.push(
+          "エントリー条件が「常にtrue」になっています。ストップ高検出ロジックが正しく設定されていない可能性があります。"
         );
-        const results = await Promise.all(ohlcPromises);
-        handleProgressUpdate(50, "全OHLCデータ取得完了。処理中...");
-
-        const newOhlcData: Record<string, OHLCFrameJSON> = {};
-        let successfulFetches = 0;
-        results.forEach((result, index) => {
-          if (result) {
-            newOhlcData[codes[index]] = result;
-            successfulFetches++;
-          }
-        });
-
-        if (successfulFetches === 0) {
-          // E0003: J-Quants APIデータ取得失敗 (全件失敗)
-          setDataError(
-            "E2003: 指定された全ての銘柄・期間のOHLCデータを取得できませんでした。APIキー、銘柄コード、期間を確認してください。"
-          );
-          handleProgressUpdate(100, "データ取得失敗");
-          setIsLoadingData(false);
-          return;
-        } else if (successfulFetches < codes.length) {
-          // E0003: 部分的なデータ取得失敗 (警告に近いが、エラーとしても表示)
-          setDataError(
-            `E2003: 一部の銘柄のOHLCデータ取得に失敗しました。取得成功: ${successfulFetches}/${codes.length}. 詳細はコンソールを確認してください。`
-          );
-          // データ取得は継続するがエラーメッセージは表示
-        }
-
-        setOhlcData(newOhlcData);
-        handleProgressUpdate(55, "データ取得・処理完了。戦略定義待機中...");
-
-        if (validatedDsl) {
-          setRunConfig({
-            dsl: validatedDsl,
-            codes: Object.keys(newOhlcData),
-            startDate,
-            endDate,
-          });
-        }
-      } catch (error: any) {
-        console.error("Data fetching process error:", error);
-        // E0003: その他のデータ取得プロセスエラー
-        setDataError(
-          `E2003: OHLCデータ取得プロセス中にエラーが発生しました: ${
-            error.message || String(error)
-          }`
-        );
-        handleProgressUpdate(100, "データ取得中にエラー発生");
-      } finally {
-        setIsLoadingData(false);
+        improvements.push("前日ストップ高判定: lag(close == high, 1)");
+        improvements.push("ショートポジション方向の明示");
+        improvements.push("ストップ高率による絞り込み条件");
       }
-    },
-    [apiKeys, handleJQuantsTokenRefreshed, validatedDsl, handleProgressUpdate]
-  );
+    }
 
-  const handleStrategyValidated = useCallback(
-    (dsl: StrategyAST) => {
-      setValidatedDsl(dsl);
-      setShowDsl(true);
-      setBacktestResult(null);
-      setBacktestError(null);
-      handleProgressUpdate(60, "戦略検証完了。バックテスト準備中...");
+    // 移動平均戦略の検出
+    if (
+      entryCondition.includes("移動平均") ||
+      exitCondition.includes("移動平均")
+    ) {
+      strategyType = "移動平均戦略";
+      interpretation = "移動平均を基準としたトレンドフォロー戦略";
 
-      if (dataConfig && Object.keys(ohlcData).length > 0) {
-        setRunConfig({
-          dsl,
-          codes: Object.keys(ohlcData),
-          startDate: dataConfig.startDate,
-          endDate: dataConfig.endDate,
-        });
-      }
-    },
-    [dataConfig, ohlcData, handleProgressUpdate]
-  );
-
-  // Initialize worker
-  useEffect(() => {
-    const newWorker = new Worker(
-      new URL("./worker/worker.ts", import.meta.url),
-      { type: "module" }
-    );
-    setWorker(newWorker);
-
-    newWorker.onmessage = (event: MessageEvent<WorkerMessage>) => {
-      const data = event.data;
-
-      if (data.type === "progress") {
-        setProgress({ value: data.progress ?? 0, message: data.message ?? "" });
-      } else if (data.type === "result") {
-        setBacktestResult(data);
-        setBacktestError(null);
-        setIsBacktestLoading(false);
-        setProgress({ value: 100, message: "バックテスト完了" });
-      } else if (data.type === "error") {
-        setBacktestError(data.message);
-        setBacktestResult(null);
-        setIsBacktestLoading(false);
-        setProgress({ value: 100, message: `エラー: ${data.message}` });
-      }
-    };
-
-    newWorker.onerror = (errorEvent) => {
-      console.error("Worker error:", errorEvent);
-      // E0008: Worker初期化失敗
-      setBacktestError(
-        `E0008: Workerとの通信確立または初期化に失敗しました: ${errorEvent.message}`
-      );
-      setBacktestResult(null);
-      setIsBacktestLoading(false);
-      setProgress({
-        value: 100,
-        message: "Workerで致命的なエラーが発生しました。",
-      });
-    };
-
-    return () => {
-      newWorker.terminate();
-      setWorker(null);
-    };
-  }, []);
-
-  // Effect to run backtest when runConfig changes
-  useEffect(() => {
-    if (!runConfig || !worker || Object.keys(ohlcData).length === 0) {
       if (
-        isBacktestLoading &&
-        (!runConfig || Object.keys(ohlcData).length === 0)
+        !entryCondition.includes("移動平均") ||
+        !exitCondition.includes("移動平均")
       ) {
-        setIsBacktestLoading(false);
-        if (!runConfig)
-          setProgress((prev) => ({
-            ...prev,
-            message: "戦略が定義されていません。",
-          }));
-        if (Object.keys(ohlcData).length === 0)
-          setProgress((prev) => ({
-            ...prev,
-            message: "OHLCデータがありません。",
-          }));
+        improvements.push(
+          "エントリーとエグジットの両方で移動平均を使用することを検討"
+        );
       }
-      return;
     }
 
-    setIsBacktestLoading(true);
-    setBacktestResult(null);
-    setBacktestError(null);
-    handleProgressUpdate(75, "バックテスト準備中 (Arrowデータ変換開始)...");
+    // RSI戦略の検出
+    if (entryCondition.includes("RSI") || exitCondition.includes("RSI")) {
+      strategyType = "RSI逆張り戦略";
+      interpretation = "RSIを基準とした過買い・過売りを狙う戦略";
 
-    const targetCode = runConfig.dsl.universe[0];
-    const ohlcFrame = ohlcData[targetCode];
-
-    if (!ohlcFrame) {
-      setBacktestError(`銘柄 ${targetCode} のOHLCデータが見つかりません。`);
-      setIsBacktestLoading(false);
-      handleProgressUpdate(100, "データエラー");
-      return;
+      if (entryCondition.includes("RSI") && exitCondition.includes("RSI")) {
+        // RSIが両方で使われている場合は良い設計
+      } else {
+        improvements.push(
+          "RSI戦略では過買い(>70)と過売り(<30)の両方向を活用することを推奨"
+        );
+      }
     }
 
-    let arrowBuffer: ArrayBuffer;
-    try {
-      const dateTimestamps = ohlcFrame.index.map((dateStr) =>
-        new Date(dateStr).getTime()
-      );
-      const opens = Float64Array.from(
-        ohlcFrame.data.map((row) => row[0] ?? NaN)
-      );
-      const highs = Float64Array.from(
-        ohlcFrame.data.map((row) => row[1] ?? NaN)
-      );
-      const lows = Float64Array.from(
-        ohlcFrame.data.map((row) => row[2] ?? NaN)
-      );
-      const closes = Float64Array.from(
-        ohlcFrame.data.map((row) => row[3] ?? NaN)
-      );
-      const volumes = Int32Array.from(ohlcFrame.data.map((row) => row[4] ?? 0));
-
-      const table = new Table({
-        date: makeVector({ data: dateTimestamps, type: new DateDay() }),
-        open: makeVector({ data: opens, type: new Float64() }),
-        high: makeVector({ data: highs, type: new Float64() }),
-        low: makeVector({ data: lows, type: new Float64() }),
-        close: makeVector({ data: closes, type: new Float64() }),
-        volume: makeVector({ data: volumes, type: new Int32() }),
-      });
-      const arrowUint8Array = tableToIPC(table, "file");
-      arrowBuffer = new Uint8Array(arrowUint8Array).buffer;
-      handleProgressUpdate(85, "Arrowデータ変換完了。バックテスト実行中...");
-    } catch (e: any) {
-      // E0009: OHLCデータ → Arrow変換失敗
-      setBacktestError(
-        `E0009: OHLCデータのArrow IPC形式への変換に失敗しました: ${e.message}`
-      );
-      setIsBacktestLoading(false);
-      handleProgressUpdate(100, "データ変換エラー");
-      return;
+    // 一般的な改善提案
+    if (strategy.cash && strategy.cash < 100000) {
+      warnings.push("初期資金が少なすぎます。最低100,000円以上を推奨します。");
     }
 
-    const req_id = uuidv4();
-    const request: BacktestRequest = {
-      req_id,
-      dsl_ast: runConfig.dsl,
-      arrow: new Uint8Array(arrowBuffer),
-      params: {
-        initCash: runConfig.dsl.cash || 1000000,
-        slippageBp: runConfig.dsl.slippage_bp || 3,
-      },
+    if (strategy.slippage_bp && strategy.slippage_bp > 10) {
+      warnings.push("スリッページが高すぎます。通常は3-5bp程度が適切です。");
+    }
+
+    const summary =
+      interpretation ||
+      `${entryCondition}の時にエントリー、${exitCondition}の時にエグジット`;
+
+    return {
+      entryCondition,
+      exitCondition,
+      summary,
+      strategyType,
+      interpretation,
+      warnings,
+      improvements,
     };
+  };
 
-    console.log("[App] Sending backtest request:", {
-      req_id,
-      dsl_ast: runConfig.dsl,
-      arrow_length: new Uint8Array(arrowBuffer).length,
-      params: request.params,
-    });
+  const handleDataConfigSubmit = async (
+    codes: string[],
+    startDate: string,
+    endDate: string
+  ) => {
+    setDataConfig({ codes, startDate, endDate });
 
-    worker.postMessage(request, [arrowBuffer]);
-  }, [runConfig, worker, ohlcData, handleProgressUpdate]);
+    // 実際にデータをダウンロード
+    console.log("Starting data download...");
+    const result = await triggerRefetch(codes, startDate, endDate);
+
+    if (result) {
+      console.log("Data download successful, proceeding to next step");
+      setStep(2); // 次のステップに進む
+    } else {
+      console.log("Data download failed, staying on current step");
+    }
+  };
+
+  const handleStrategySubmit = (strategyAST: StrategyAST) => {
+    setStrategy(strategyAST);
+    console.log("Strategy submitted:", strategyAST);
+    setStep(3); // バックテスト実行ステップに進む
+  };
 
   return (
     <div className="container mx-auto p-4 space-y-6">
-      <ProgressBar progress={progress.value} message={progress.message} />
-
       <header className="flex justify-between items-center py-2 border-b mb-4">
         <h1 className="text-2xl font-bold">
           日本株クライアントサイド・バックテスト
@@ -455,115 +255,356 @@ export default function App() {
         onClose={() => setIsApiKeyModalOpen(false)}
       />
 
-      {!apiKeys.jquants_refresh && !isApiKeyModalOpen && (
+      <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">
+        ✓ アプリケーションが正常に起動しました - ステップ {step}/3
+        {apiKeys.jquants_refresh && (
+          <span className="ml-2 text-green-600">
+            (J-Quants APIキー設定済み)
+          </span>
+        )}
+        {ohlcData && (
+          <span className="ml-2 text-blue-600">
+            ({ohlcData.length}件のデータを取得済み)
+          </span>
+        )}
+        {strategy && (
+          <span className="ml-2 text-purple-600">(戦略定義済み)</span>
+        )}
+      </div>
+
+      {!apiKeys.jquants_refresh && (
         <div className="p-4 bg-yellow-100 text-yellow-800 rounded">
           J-Quants Refresh
           Tokenが設定されていません。右上の「APIキー設定」からキーを登録してください。
         </div>
       )}
 
-      {apiKeys.jquants_refresh && (
-        <>
-          <section className="space-y-4">
-            <h2 className="text-xl font-semibold">1. 銘柄・期間の選択</h2>
-            {!dataConfig ? (
-              <StockPeriodSelector onSubmit={handleDataConfigSubmit} />
-            ) : (
-              <div className="bg-gray-50 p-4 rounded">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-medium">選択済み:</p>
-                    <p>銘柄: {dataConfig.codes.join(", ")}</p>
-                    <p>
-                      期間: {dataConfig.startDate} 〜 {dataConfig.endDate}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setDataConfig(null);
-                      setOhlcData({});
-                      setRunConfig(null);
-                      setValidatedDsl(null);
-                      setProgress({ value: 0, message: "" });
-                    }}
-                    className="text-blue-600 hover:text-blue-800"
-                  >
-                    変更
-                  </button>
-                </div>
-                {isLoadingData && (
-                  <p className="mt-2">
-                    データ取得中...{" "}
-                    {progress.message.includes("OHLCデータ取得中")
-                      ? progress.message.split(": ")[1]
-                      : ""}
+      {/* エラー表示 */}
+      {error && (
+        <div className="p-4 bg-red-100 text-red-800 rounded">
+          <p className="font-semibold">エラーが発生しました:</p>
+          <p>{error.message}</p>
+        </div>
+      )}
+
+      {/* ローディング表示 */}
+      {isLoading && (
+        <div className="p-4 bg-blue-100 text-blue-800 rounded">
+          <p>データをダウンロード中...</p>
+        </div>
+      )}
+
+      {/* Step 1: 銘柄・期間選択 */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">1. 銘柄・期間の選択</h2>
+        {!dataConfig ? (
+          <StockPeriodSelector
+            onSubmit={handleDataConfigSubmit}
+            isLoading={isLoading}
+          />
+        ) : (
+          <div className="p-4 border rounded bg-gray-50">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-medium">選択済み:</p>
+                <p>銘柄: {dataConfig.codes.join(", ")}</p>
+                <p>
+                  期間: {dataConfig.startDate} 〜 {dataConfig.endDate}
+                </p>
+                {ohlcData && (
+                  <p className="text-green-600 mt-2">
+                    ✓ {ohlcData.length}件のデータを取得しました
                   </p>
                 )}
-                {dataError && (
-                  <p className="mt-2 text-red-600">エラー: {dataError}</p>
-                )}
-                {!isLoadingData &&
-                  !dataError &&
-                  Object.keys(ohlcData).length > 0 && (
-                    <p className="mt-2 text-green-600">
-                      ✓ データ取得完了 ({Object.keys(ohlcData).length}/
-                      {dataConfig?.codes?.length || 0}銘柄)
-                      {Object.keys(ohlcData).length <
-                        (dataConfig?.codes?.length || 0) && (
-                        <span className="text-yellow-600 ml-2">
-                          一部銘柄の取得に失敗
-                        </span>
-                      )}
-                    </p>
-                  )}
               </div>
-            )}
-          </section>
+              <button
+                onClick={() => {
+                  setDataConfig(null);
+                  setStep(1);
+                }}
+                className="text-blue-600 hover:text-blue-800"
+                disabled={isLoading}
+              >
+                変更
+              </button>
+            </div>
+            <div className="mt-4">
+              <button
+                onClick={() => setStep(2)}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
+                disabled={!apiKeys.jquants_refresh || !ohlcData || isLoading}
+              >
+                次のステップへ
+              </button>
+              {!apiKeys.jquants_refresh && (
+                <p className="text-red-500 text-sm mt-2">
+                  APIキーを設定してください
+                </p>
+              )}
+              {!ohlcData && apiKeys.jquants_refresh && !isLoading && (
+                <p className="text-orange-500 text-sm mt-2">
+                  データのダウンロードが必要です
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
-          <section className="space-y-4">
-            <h2 className="text-xl font-semibold">2. 戦略の定義</h2>
+      {/* Step 2: 戦略定義 */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">2. 戦略の定義</h2>
+        {step >= 2 ? (
+          <div className="space-y-4">
+            {/* 戦略エディター - 常に表示 */}
             <StrategyEditor
-              onStrategySubmit={handleStrategyValidated}
+              onStrategySubmit={handleStrategySubmit}
               apiKeys={apiKeys}
             />
-            {showDsl && validatedDsl && (
-              <div className="mt-4 p-3 bg-gray-100 rounded">
-                <h3 className="font-semibold">検証済みDSL:</h3>
-                <pre className="text-sm whitespace-pre-wrap">
-                  {JSON.stringify(validatedDsl, null, 2)}
-                </pre>
+
+            {/* 戦略分析ヘルプ */}
+            <div className="p-4 border rounded bg-amber-50 border-amber-200">
+              <h3 className="font-medium text-amber-800 mb-2">
+                🔍 戦略分析について
+              </h3>
+              <div className="text-sm text-amber-700 space-y-2">
+                <p>
+                  <strong>現在の実装状況</strong>
+                  ：基本的な戦略パターン（移動平均、RSI、ストップ高）の検出と分析に対応。
+                  複雑な戦略は段階的に改善予定です。
+                </p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer font-medium hover:text-amber-800">
+                    ✅ 実装済み機能 / 🚧 改善予定
+                  </summary>
+                  <div className="mt-2 ml-4 space-y-3 text-xs">
+                    <div>
+                      <p className="font-medium text-green-700">
+                        ✅ 実装済み機能:
+                      </p>
+                      <ul className="list-disc ml-4 space-y-1">
+                        <li>基本的なAST→テキスト変換</li>
+                        <li>戦略タイプの自動検出</li>
+                        <li>警告メッセージと改善提案</li>
+                        <li>ストップ高パターンの部分的検出</li>
+                        <li>移動平均・RSI戦略の解析</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-blue-700">
+                        🚧 短期改善予定 (1-2週間):
+                      </p>
+                      <ul className="list-disc ml-4 space-y-1">
+                        <li>前日データ参照 (lag関数) の実装</li>
+                        <li>ショートポジション対応</li>
+                        <li>Gemini APIプロンプトの精度向上</li>
+                        <li>戦略修正支援機能</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-purple-700">
+                        🚧 中期改善予定 (1-2ヶ月):
+                      </p>
+                      <ul className="list-disc ml-4 space-y-1">
+                        <li>専用ストップ高関数 (stop_high) の完全実装</li>
+                        <li>高度なタイミング制御</li>
+                        <li>マルチ銘柄対応</li>
+                        <li>独自DSL開発の検討</li>
+                      </ul>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            {/* 設定済み戦略の表示 */}
+            {strategy && (
+              <div className="p-4 border rounded bg-blue-50">
+                <div className="flex justify-between items-start mb-3">
+                  <h3 className="font-medium text-lg">
+                    現在設定されている戦略
+                  </h3>
+                  <button
+                    onClick={() => setStrategy(null)}
+                    className="text-red-600 hover:text-red-800 text-sm"
+                  >
+                    戦略をクリア
+                  </button>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  {/* 戦略タイプとステータス表示 */}
+                  <div className="mb-4 p-3 bg-gray-100 rounded">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <span className="font-medium text-gray-700">
+                          戦略タイプ:{" "}
+                        </span>
+                        <span className="text-blue-600 font-semibold">
+                          {strategyToText(strategy).strategyType}
+                        </span>
+                      </div>
+                      <span className="text-green-600 font-medium">
+                        ✓ 設定完了
+                      </span>
+                    </div>
+                    {strategyToText(strategy).interpretation && (
+                      <p className="text-gray-600 mt-2 italic">
+                        {strategyToText(strategy).interpretation}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 警告表示 */}
+                  {strategyToText(strategy).warnings.length > 0 && (
+                    <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                      <p className="font-medium text-yellow-800 mb-2">
+                        ⚠️ 戦略分析の警告:
+                      </p>
+                      {strategyToText(strategy).warnings.map(
+                        (warning, index) => (
+                          <p
+                            key={index}
+                            className="text-yellow-700 text-sm mb-1"
+                          >
+                            • {warning}
+                          </p>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  {/* 改善提案表示 */}
+                  {strategyToText(strategy).improvements.length > 0 && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                      <p className="font-medium text-blue-800 mb-2">
+                        💡 改善提案:
+                      </p>
+                      {strategyToText(strategy).improvements.map(
+                        (improvement, index) => (
+                          <p key={index} className="text-blue-700 text-sm mb-1">
+                            • {improvement}
+                          </p>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="font-medium text-gray-700">
+                        エントリー条件:
+                      </p>
+                      <p className="text-gray-900 bg-white p-2 rounded border">
+                        {strategyToText(strategy).entryCondition}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        タイミング:{" "}
+                        {strategy.entry.timing === "next_open"
+                          ? "翌営業日の始値"
+                          : "当日終値"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium text-gray-700">
+                        エグジット条件:
+                      </p>
+                      <p className="text-gray-900 bg-white p-2 rounded border">
+                        {strategyToText(strategy).exitCondition}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        タイミング:{" "}
+                        {strategy.exit.timing === "current_close"
+                          ? "当日終値"
+                          : strategy.exit.timing}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-blue-200">
+                    <p className="font-medium text-gray-700 mb-2">
+                      戦略サマリー:
+                    </p>
+                    <p className="text-gray-900 bg-white p-3 rounded border italic">
+                      {strategyToText(strategy).summary}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-3 border-t border-blue-200">
+                    <div>
+                      <p className="font-medium text-gray-700">対象銘柄:</p>
+                      <p className="text-gray-900">
+                        {strategy.universe.join(", ")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-700">初期資金:</p>
+                      <p className="text-gray-900">
+                        {strategy.cash
+                          ? `${strategy.cash.toLocaleString()}円`
+                          : "1,000,000円(デフォルト)"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-700">スリッページ:</p>
+                      <p className="text-gray-900">
+                        {strategy.slippage_bp
+                          ? `${strategy.slippage_bp}bp`
+                          : "3bp(デフォルト)"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-blue-200">
+                  <button
+                    onClick={() => setStep(3)}
+                    className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    この戦略でバックテストを実行
+                  </button>
+                </div>
               </div>
             )}
-          </section>
+          </div>
+        ) : (
+          <p className="text-gray-500">前のステップを完了してください</p>
+        )}
+      </section>
 
-          {(isBacktestLoading || backtestResult || backtestError) &&
-            runConfig && (
-              <section className="space-y-4">
-                <h2 className="text-xl font-semibold">3. バックテスト結果</h2>
-                {backtestResult && (
-                  <BacktestResults
-                    dsl={runConfig.dsl}
-                    codes={runConfig.codes}
-                    startDate={runConfig.startDate}
-                    endDate={runConfig.endDate}
-                    apiKey={apiKeys.openai || ""}
-                    ohlcDataProp={ohlcData}
-                    onProgressUpdate={handleProgressUpdate}
-                    backtestResponse={backtestResult}
-                    isLoading={isBacktestLoading}
-                    error={backtestError}
-                  />
-                )}
-                {backtestError && (
-                  <div className="p-4 bg-red-100 text-red-700 rounded">
-                    <p className="font-bold">エラー:</p>
-                    <p>{backtestError}</p>
-                  </div>
-                )}
-              </section>
-            )}
-        </>
-      )}
+      {/* Step 3: バックテスト結果 */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">3. バックテスト結果</h2>
+        {step >= 3 ? (
+          <div className="p-4 border rounded bg-green-50">
+            <p className="font-semibold mb-2">✓ バックテスト準備完了</p>
+            <p className="text-sm text-gray-600 mb-4">
+              データと戦略の準備が完了しました。次はバックテストエンジンの統合を行います。
+            </p>
+            <div className="space-x-2">
+              <button
+                onClick={() => {
+                  setStep(1);
+                  setDataConfig(null);
+                  setStrategy(null);
+                }}
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+              >
+                リセット
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                disabled
+              >
+                バックテスト実行 (実装予定)
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-gray-500">前のステップを完了してください</p>
+        )}
+      </section>
     </div>
   );
 }

@@ -1,6 +1,13 @@
 export type LogicalOperator = "AND" | "OR";
 export type BinaryOperator = ">" | "<" | ">=" | "<=" | "==" | "!=";
-export type FunctionName = "ma" | "rsi" | "atr";
+export type FunctionName =
+  | "ma"
+  | "rsi"
+  | "atr"
+  | "lag"
+  | "shift"
+  | "stop_high"
+  | "stop_low";
 export type ValueKind = "IDENT" | "NUMBER";
 export type IdentifierValue =
   | "price"
@@ -8,7 +15,8 @@ export type IdentifierValue =
   | "high"
   | "low"
   | "close"
-  | "volume";
+  | "volume"
+  | "open";
 
 export interface BaseNode {
   type: string;

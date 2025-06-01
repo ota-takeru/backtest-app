@@ -8,6 +8,9 @@ import {
   makeVector,
   Vector,
 } from "apache-arrow";
+import { fetchOHLC } from "../lib/fetchJQuants";
+import { OHLCFrameJSON } from "../lib/types";
+import { useApiKeys } from "./useApiKeys";
 
 // APIからのデータ型やエラー型は実際の仕様に合わせて定義してください
 interface OhlcData {
@@ -34,6 +37,7 @@ export const useOhlcData = (): UseOhlcDataReturn => {
   const [ohlcData, setOhlcData] = useState<OhlcData[] | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
+  const { keys, updateKeys } = useApiKeys();
 
   const triggerRefetch = useCallback(
     async (
@@ -53,35 +57,72 @@ export const useOhlcData = (): UseOhlcDataReturn => {
       );
 
       try {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const rawData: OhlcData[] = [
-          {
-            date: "2023-01-01",
-            open: 100,
-            high: 105,
-            low: 98,
-            close: 102,
-            volume: 10000,
+        // Check if we have the necessary API keys
+        if (!keys.jquants_refresh) {
+          throw new Error(
+            "J-Quants Refresh Token is not configured. Please set up API keys first."
+          );
+        }
+
+        if (!keys.jquants_id) {
+          throw new Error(
+            "J-Quants ID Token is not available. Please check your API configuration."
+          );
+        }
+
+        // Fetch data for the first code (for now, handle multiple codes later)
+        const primaryCode = codes[0];
+        if (!primaryCode) {
+          throw new Error("At least one stock code must be provided.");
+        }
+
+        console.log(
+          `Fetching data for ${primaryCode} from ${startDate} to ${endDate}`
+        );
+
+        const ohlcFrame = await fetchOHLC(
+          keys.jquants_id,
+          keys.jquants_refresh,
+          (newIdToken: string, newRefreshToken?: string) => {
+            // Update tokens when refreshed
+            updateKeys({
+              jquants_id: newIdToken,
+              ...(newRefreshToken && { jquants_refresh: newRefreshToken }),
+            });
           },
-          {
-            date: "2023-01-02",
-            open: 102,
-            high: 108,
-            low: 100,
-            close: 105,
-            volume: 12000,
-          },
-          {
-            date: "2023-01-03",
-            open: 105,
-            high: 106,
-            low: 101,
-            close: 103,
-            volume: 11000,
-          },
-        ];
+          primaryCode,
+          startDate,
+          endDate
+        );
+
+        if (!ohlcFrame) {
+          throw new Error(`No data returned for ${primaryCode}`);
+        }
+
+        // Convert OHLCFrameJSON to OhlcData[]
+        const rawData: OhlcData[] = [];
+        for (let i = 0; i < ohlcFrame.index.length; i++) {
+          const dateStr = ohlcFrame.index[i];
+          const rowData = ohlcFrame.data[i];
+
+          if (rowData && rowData.length >= 5) {
+            rawData.push({
+              date: dateStr,
+              open: rowData[0] || 0,
+              high: rowData[1] || 0,
+              low: rowData[2] || 0,
+              close: rowData[3] || 0,
+              volume: rowData[4] || 0,
+            });
+          }
+        }
+
+        console.log(
+          `Successfully fetched ${rawData.length} data points for ${primaryCode}`
+        );
         setOhlcData(rawData);
 
+        // Convert to Arrow table for backtesting
         const dateValues = rawData.map((d) => Date.parse(d.date));
         const openValues = rawData.map((d) => d.open);
         const highValues = rawData.map((d) => d.high);
@@ -113,7 +154,7 @@ export const useOhlcData = (): UseOhlcDataReturn => {
         return null;
       }
     },
-    []
+    [keys, updateKeys]
   );
 
   return { ohlcData, isLoading, error, triggerRefetch };

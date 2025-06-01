@@ -38,8 +38,46 @@ export async function refreshJQuantsIdTokenLogic(
   url.searchParams.set("refreshtoken", refreshToken);
 
   try {
-    const res = await fetch(url.toString(), { method: "POST" }); // ヘッダと body は不要
+    // Add timeout and abort controller to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log(
+        "[refreshJQuantsIdTokenLogic] Request timeout after 5 seconds, aborting..."
+      );
+      controller.abort();
+    }, 5000); // 5 second timeout for faster debugging
+
+    console.log(
+      "[refreshJQuantsIdTokenLogic] Making request to:",
+      url.toString()
+    );
+    console.log(
+      "[refreshJQuantsIdTokenLogic] Refresh token (first 10 chars):",
+      refreshToken.substring(0, 10)
+    );
+
+    const startTime = Date.now();
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    const elapsed = Date.now() - startTime;
+    console.log(
+      `[refreshJQuantsIdTokenLogic] Request completed in ${elapsed}ms`
+    );
+
+    clearTimeout(timeoutId);
+
     const text = await res.text();
+    console.log("[refreshJQuantsIdTokenLogic] Response status:", res.status);
+    console.log(
+      "[refreshJQuantsIdTokenLogic] Response text:",
+      text.substring(0, 200)
+    );
 
     if (!res.ok) {
       throw new Error(
@@ -51,12 +89,29 @@ export async function refreshJQuantsIdTokenLogic(
     if (!data.idToken)
       throw new Error("idToken not found in refresh response.");
 
+    console.log("[refreshJQuantsIdTokenLogic] Successfully refreshed ID token");
     return { newIdToken: data.idToken, newRefreshToken: data.refreshToken };
-  } catch (err) {
+  } catch (err: any) {
     console.error(
       "[refreshJQuantsIdTokenLogic] Error during token refresh:",
       err
     );
+    if (err?.name === "AbortError") {
+      console.error(
+        "[refreshJQuantsIdTokenLogic] Request timed out after 5 seconds"
+      );
+    } else if (err instanceof TypeError && err.message.includes("fetch")) {
+      console.error(
+        "[refreshJQuantsIdTokenLogic] Network error - fetch failed:",
+        err.message
+      );
+    } else {
+      console.error(
+        "[refreshJQuantsIdTokenLogic] Unexpected error type:",
+        err?.name,
+        err?.message
+      );
+    }
     return null;
   }
 }
