@@ -42,17 +42,19 @@ export function StockPeriodSelector({
       className="space-y-4"
       data-testid="stock-period-selector"
     >
-      <StockCodeSelector
-        selectedCodes={selectedCodes}
-        onCodesChange={setSelectedCodes}
-      />
+      <div data-testid="stock-selector">
+        <StockCodeSelector
+          selectedCodes={selectedCodes}
+          onCodesChange={setSelectedCodes}
+        />
 
-      <DateRangeSelector
-        startDate={startDate}
-        endDate={endDate}
-        onStartDateChange={setStartDate}
-        onEndDateChange={setEndDate}
-      />
+        <DateRangeSelector
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+        />
+      </div>
 
       <div className="flex justify-end">
         <button

@@ -1,5 +1,5 @@
 import React from "react";
-import { TradeRow } from "../types";
+import { TradeRow } from "../types/worker";
 import {
   createColumnHelper,
   flexRender,
@@ -14,29 +14,60 @@ interface TradesTableProps {
 const columnHelper = createColumnHelper<TradeRow>();
 
 const columns = [
-  columnHelper.accessor("date", {
-    header: "日付",
+  columnHelper.accessor("id", {
+    header: "ID",
+    cell: (info) => info.getValue(),
+  }),
+  columnHelper.accessor("code", {
+    header: "銘柄",
     cell: (info) => info.getValue(),
   }),
   columnHelper.accessor("side", {
     header: "売買",
+    cell: (info) => {
+      const side = info.getValue();
+      return side === "long" ? "買い" : "売り";
+    },
+  }),
+  columnHelper.accessor("entryDate", {
+    header: "エントリー日",
     cell: (info) => info.getValue(),
   }),
-  columnHelper.accessor("price", {
-    header: "価格",
-    cell: (info) => info.getValue().toFixed(2),
+  columnHelper.accessor("exitDate", {
+    header: "エグジット日",
+    cell: (info) => info.getValue(),
   }),
-  columnHelper.accessor("quantity", {
+  columnHelper.accessor("qty", {
     header: "数量",
-    cell: (info) => info.getValue(),
+    cell: (info) => info.getValue().toLocaleString(),
+  }),
+  columnHelper.accessor("entryPx", {
+    header: "エントリー価格",
+    cell: (info) => `¥${info.getValue().toFixed(2)}`,
+  }),
+  columnHelper.accessor("exitPx", {
+    header: "エグジット価格",
+    cell: (info) => `¥${info.getValue().toFixed(2)}`,
   }),
   columnHelper.accessor("pnl", {
-    header: "損益(PnL)",
+    header: "損益(円)",
     cell: (info) => {
       const pnl = info.getValue();
       const textColor = pnl >= 0 ? "text-green-600" : "text-red-600";
-      return <span className={textColor}>{pnl.toFixed(2)}</span>;
+      return <span className={textColor}>¥{pnl.toFixed(0)}</span>;
     },
+  }),
+  columnHelper.accessor("pnlPct", {
+    header: "損益率(%)",
+    cell: (info) => {
+      const pnlPct = info.getValue();
+      const textColor = pnlPct >= 0 ? "text-green-600" : "text-red-600";
+      return <span className={textColor}>{pnlPct.toFixed(2)}%</span>;
+    },
+  }),
+  columnHelper.accessor("duration", {
+    header: "保有日数",
+    cell: (info) => `${info.getValue()}日`,
   }),
 ];
 

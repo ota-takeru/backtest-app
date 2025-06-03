@@ -29,7 +29,7 @@ const MetricsDisplay: React.FC<MetricsDisplayProps> = ({ metrics }) => {
         <h3 className="text-sm font-medium text-gray-500">CAGR</h3>
         <p
           className="mt-1 text-3xl font-semibold text-gray-900"
-          data-testid="cagr-value"
+          data-testid="metric-cagr"
         >
           {formatPercentage(metrics.cagr)}
         </p>

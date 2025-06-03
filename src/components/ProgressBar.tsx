@@ -4,14 +4,13 @@ interface Props {
 }
 
 export function ProgressBar({ progress, message }: Props) {
-  if (progress <= 0 || progress >= 100) return null;
   return (
-    <div className="fixed top-0 left-0 w-full z-50" data-testid="progress-bar">
+    <div className="w-full" data-testid="progress-bar-component">
       <div
-        className="bg-blue-100 text-blue-800 text-sm px-4 py-1 flex items-center"
+        className="bg-blue-100 text-blue-800 text-sm px-4 py-2 flex items-center rounded-t"
         data-testid="progress-bar-content"
       >
-        <div className="flex-1 truncate" data-testid="progress-bar-message">
+        <div className="flex-1 truncate" data-testid="progress-text">
           {message}
         </div>
         <div className="w-32 text-right" data-testid="progress-bar-percentage">
@@ -19,12 +18,12 @@ export function ProgressBar({ progress, message }: Props) {
         </div>
       </div>
       <div
-        className="w-full bg-blue-200 h-1"
+        className="w-full bg-blue-200 h-2 rounded-b"
         data-testid="progress-bar-background"
       >
         <div
-          className="bg-blue-600 h-1 transition-all duration-300 ease-out"
-          style={{ width: `${progress}%` }}
+          className="bg-blue-600 h-2 transition-all duration-300 ease-out rounded-b"
+          style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
           data-testid="progress-bar-fill"
         ></div>
       </div>

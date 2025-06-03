@@ -1,23 +1,4 @@
-import { StrategyAST } from "./index";
-
-/**
- * Represents a single row in the trade history.
- * As defined in REQUIREMENTS.md §5.3.3
- */
-export interface TradeRow {
-  id: number; // 連番 (1~)
-  code: string; // '7203.T'
-  side: "long"; // MVP は long 固定
-  entryDate: string; // ISO-8601 (YYYY-MM-DD)
-  exitDate: string; // ISO-8601
-  qty: number; // 株数 (整数)
-  entryPx: number; // 円
-  exitPx: number; // 円
-  slippageBp: number; // 片道 bps (entry と exit 同一)
-  pnl: number; // 円 (手数料・スリッページ込)
-  pnlPct: number; // (exitPx-entryPx)/entryPx
-  duration: number; // 日数 (= exitDate-entryDate)
-}
+import { StrategyAST, TradeRow } from "./index";
 
 /**
  * Message structure for requests sent from the UI to the Web Worker.

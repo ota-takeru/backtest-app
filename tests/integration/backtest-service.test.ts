@@ -19,7 +19,7 @@ describe("Service Integration Tests", () => {
         },
         exit: {
           ast: { type: "Value", kind: "IDENT", value: "close" },
-          timing: "close",
+          timing: "current_close",
         },
         universe: ["7203.T"],
       };
@@ -56,7 +56,7 @@ describe("Service Integration Tests", () => {
             left: { type: "Func", name: "rsi", args: [14] },
             right: { type: "Value", kind: "NUMBER", value: 70 },
           },
-          timing: "close",
+          timing: "current_close",
         },
         universe: ["7203.T"],
       };

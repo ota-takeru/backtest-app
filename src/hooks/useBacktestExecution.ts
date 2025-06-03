@@ -8,16 +8,19 @@ import {
   Float64,
   Int32,
 } from "apache-arrow";
-import { BacktestRequest, StrategyAST } from "../types";
+import { BacktestRequest } from "../types/worker";
+import { StrategyAST } from "../types";
 import { OHLCFrameJSON } from "../lib/types";
 
 interface UseBacktestExecutionProps {
   onProgress: (value: number, message: string) => void;
   onError: (error: string) => void;
-  runBacktest: (
-    request: BacktestRequest,
-    transferableBuffer: ArrayBuffer
-  ) => void;
+  runBacktest:
+    | ((
+        request: BacktestRequest,
+        transferableBuffer: ArrayBuffer
+      ) => void | Promise<void>)
+    | null;
 }
 
 export function useBacktestExecution({
@@ -107,7 +110,12 @@ export function useBacktestExecution({
         },
       };
 
-      runBacktest(request, arrowBuffer);
+      if (runBacktest) {
+        await runBacktest(request, arrowBuffer);
+      } else {
+        onError("バックテスト実行関数が利用できません");
+        onProgress(100, "バックテスト実行エラー");
+      }
     },
     [convertOhlcToArrow, onProgress, onError, runBacktest]
   );

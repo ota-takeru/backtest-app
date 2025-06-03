@@ -33,7 +33,7 @@ export async function buildStrategyFromPrompt(
     const genAI = new GoogleGenerativeAI(apiKey);
 
     // zodToJsonSchemaはGeminiが受け付けない形式のスキーマを生成するため、変換が必要
-    let jsonSchemaForTool = zodToJsonSchema(
+    const jsonSchemaForTool = zodToJsonSchema(
       strategyASTSchema,
       "strategyASTSchema"
     );
@@ -247,7 +247,7 @@ Func ノード（関数呼び出し）:
         };
       }
     } else {
-      let textResponse = response.text();
+      const textResponse = response.text();
       if (textResponse) {
         console.warn(
           "GeminiがFunction Callではなくテキスト応答を返しました。内容:",
