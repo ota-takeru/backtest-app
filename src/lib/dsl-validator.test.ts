@@ -40,6 +40,31 @@ describe("AST Validation", () => {
     }
   });
 
+  it("should accept ASTs referencing the open column", () => {
+    const astWithOpen: StrategyAST = {
+      entry: {
+        ast: {
+          type: "Value",
+          kind: "IDENT",
+          value: "open",
+        },
+        timing: "close",
+      },
+      exit: {
+        ast: {
+          type: "Value",
+          kind: "NUMBER",
+          value: 100,
+        },
+        timing: "current_close",
+      },
+      universe: ["7203.T"],
+    };
+
+    const result = validateAst(astWithOpen);
+    expect(result.success).toBe(true);
+  });
+
   it("should reject invalid function names", () => {
     const invalidAst = {
       entry: {

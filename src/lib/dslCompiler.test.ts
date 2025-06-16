@@ -39,6 +39,7 @@ const valueNodeIdentArb: fc.Arbitrary<ValueNode> = fc.record({
     "high",
     "low",
     "close",
+    "open",
     "volume" as const
   ),
 });
@@ -272,7 +273,7 @@ describe("SQL Injection Prevention", () => {
     const ast: ValueNode = {
       type: "Value",
       kind: "IDENT",
-      value: "price" as const, // 正しい型を使用
+      value: "open" as const,
     };
     const strategyAst: StrategyAST = {
       entry: { ast, timing: "close" },
@@ -280,7 +281,7 @@ describe("SQL Injection Prevention", () => {
       universe: ["7203.T"],
     };
     const sql = compileDslToSql(strategyAst, "valid_column_test");
-    expect(sql).toContain("price");
+    expect(sql).toContain("open");
   });
 });
 
