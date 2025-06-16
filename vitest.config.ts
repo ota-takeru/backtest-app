@@ -14,6 +14,7 @@ export default defineConfig({
       "dist",
       "tests/e2e/**/*",
       "tests/performance/**/*",
+      "**/*.bench.ts",
     ],
     coverage: {
       provider: "v8",

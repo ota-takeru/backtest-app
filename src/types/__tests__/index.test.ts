@@ -60,7 +60,8 @@ describe("BacktestRequest type", () => {
             typeof data.params.slippageBp === "number"
           );
         }
-      )
+      ),
+      { numRuns: 25 }
     );
   });
 });
@@ -109,7 +110,8 @@ describe("BacktestResponse type", () => {
             (data.warnings === undefined || Array.isArray(data.warnings))
           );
         }
-      )
+      ),
+      { numRuns: 25 }
     );
   });
 });

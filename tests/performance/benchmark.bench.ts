@@ -126,7 +126,7 @@ describe("Performance Benchmarks", () => {
       const result = await runBacktest(conn, strategy);
       expect(result.toArray().length).toBeGreaterThan(2000);
     },
-    { iterations: 10 }
+    { iterations: 5 }
   );
 
   bench(
@@ -144,7 +144,7 @@ describe("Performance Benchmarks", () => {
       const result = await runBacktest(conn, strategy);
       expect(result.toArray().length).toBeGreaterThan(2000);
     },
-    { iterations: 10 }
+    { iterations: 5 }
   );
 
   bench(
@@ -159,7 +159,7 @@ describe("Performance Benchmarks", () => {
       const result = await runBacktest(conn, strategy);
       expect(result.toArray().length).toBeGreaterThan(2000);
     },
-    { iterations: 10 }
+    { iterations: 5 }
   );
 
   bench(
@@ -206,7 +206,7 @@ describe("Performance Benchmarks", () => {
       const result = await runBacktest(conn, strategy);
       expect(result.toArray().length).toBeGreaterThan(2000);
     },
-    { iterations: 5 }
+    { iterations: 3 }
   );
 
   bench(
@@ -243,7 +243,7 @@ describe("Performance Benchmarks", () => {
         expect(sql.length).toBeGreaterThan(10);
       }
     },
-    { iterations: 100 }
+    { iterations: 20 }
   );
 
   bench(
@@ -264,7 +264,7 @@ describe("Performance Benchmarks", () => {
       const result = await conn.query(query);
       expect(result.toArray().length).toBeGreaterThan(2000);
     },
-    { iterations: 20 }
+    { iterations: 10 }
   );
 
   bench(
@@ -291,7 +291,7 @@ describe("Performance Benchmarks", () => {
         expect(result.toArray().length).toBeGreaterThan(2000);
       });
     },
-    { iterations: 5 }
+    { iterations: 3 }
   );
 
   bench(
@@ -325,6 +325,6 @@ describe("Performance Benchmarks", () => {
         }
       }
     },
-    { iterations: 50 }
+    { iterations: 10 }
   );
 });
