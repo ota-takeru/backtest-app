@@ -81,9 +81,10 @@
         "type": { "const": "Value" },
         "kind": { "enum": ["IDENT", "NUMBER"] },
         "value": {
+          "description": "Identifier name when kind is IDENT. Valid identifiers: price, entry_price, open, high, low, close, volume.",
           "oneOf": [
             {
-              "enum": ["price", "entry_price", "high", "low", "close", "volume"]
+              "enum": ["price", "entry_price", "open", "high", "low", "close", "volume"]
             },
             { "type": "number" }
           ]
