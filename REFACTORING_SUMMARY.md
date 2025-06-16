@@ -8,14 +8,14 @@
 - **問題**: 複数銘柄の並列データ取得時にメインスレッドがブロックされる
 - **解決策**: 
   - チャンク処理を導入（3銘柄ずつ並列処理）
-  - 各チャンク間でUIにcontrol yieldするための`setTimeout(resolve, 10)`を追加
+  - 各チャンク間でUIにyield controlするための`setTimeout(resolve, 10)`を追加
   - プログレス更新時に`setTimeout(resolve, 0)`でUIレンダリングを優先
 
 #### Arrowデータ変換の改善 (`useBacktestExecution.ts`)
 - **問題**: OHLCデータのArrow形式変換が同期処理でUIをブロック
 - **解決策**:
   - `convertOhlcToArrow`を非同期関数に変更
-  - データ変換の各段階でUIにcontrol yieldするための`setTimeout`を追加
+  - データ変換の各段階でUIにyield controlするための`setTimeout`を追加
   - `executeBacktest`も非同期化してUIブロッキングを防止
 
 #### プログレスバーのアニメーション改善
