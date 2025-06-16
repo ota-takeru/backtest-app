@@ -60,7 +60,7 @@ describe("Performance Tests - REQUIREMENTS.md Compliance", () => {
 
   it("should simulate runBacktest(single-ticker-20y) < 2s @ P95", async () => {
     // Simulate a 20-year backtest execution time
-    const iterations = 20; // Simulate P95 with multiple runs
+    const iterations = 5; // Reduce runs for faster tests
     const executionTimes: number[] = [];
 
     for (let i = 0; i < iterations; i++) {

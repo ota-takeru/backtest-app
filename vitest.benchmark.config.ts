@@ -4,7 +4,7 @@ import { resolve } from "path";
 export default defineConfig({
   test: {
     include: [
-      "tests/performance/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
+      "tests/performance/**/*.{bench,benchmark}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
     ],
     exclude: ["node_modules", "dist"],
   },

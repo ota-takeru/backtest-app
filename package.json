@@ -10,7 +10,7 @@
     "test": "vitest run --coverage",
     "test:unit": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:bench": "vitest bench --config vitest.benchmark.config.ts",
+    "test:bench": "vitest bench run --config vitest.benchmark.config.ts",
     "test:e2e": "playwright test",
     "test:e2e:performance": "playwright test tests/e2e/performance.spec.ts",
     "size:snapshot": "rollup-plugin-size-snapshot",
