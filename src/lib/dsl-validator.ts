@@ -6,7 +6,7 @@ const ValueNodeSchema = z.object({
   type: z.literal("Value"),
   kind: z.enum(["IDENT", "NUMBER"]),
   value: z.union([
-    z.enum(["price", "entry_price", "high", "low", "close", "volume"]),
+    z.enum(["price", "entry_price", "high", "low", "close", "volume", "open"]),
     z.number(),
   ]),
 });
