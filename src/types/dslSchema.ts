@@ -9,6 +9,7 @@ const identifierValueSchema = z.enum([
   "high",
   "low",
   "close",
+  "open",
   "volume",
 ]);
 const functionNameSchema = z.enum(["ma", "rsi", "atr"]);

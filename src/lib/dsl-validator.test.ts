@@ -40,6 +40,43 @@ describe("AST Validation", () => {
     }
   });
 
+  it("should validate an AST with the 'open' identifier", () => {
+    const openAst: StrategyAST = {
+      entry: {
+        ast: {
+          type: "Func",
+          name: "rsi",
+          args: [14],
+        },
+        timing: "close",
+      },
+      exit: {
+        ast: {
+          type: "Binary",
+          op: ">",
+          left: {
+            type: "Value",
+            kind: "IDENT",
+            value: "open",
+          },
+          right: {
+            type: "Value",
+            kind: "NUMBER",
+            value: 100,
+          },
+        },
+        timing: "current_close",
+      },
+      universe: ["7203.T"],
+    };
+
+    const result = validateAst(openAst);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual(openAst);
+    }
+  });
+
   it("should reject invalid function names", () => {
     const invalidAst = {
       entry: {

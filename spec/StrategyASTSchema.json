@@ -83,7 +83,7 @@
         "value": {
           "oneOf": [
             {
-              "enum": ["price", "entry_price", "high", "low", "close", "volume"]
+              "enum": ["price", "entry_price", "high", "low", "close", "volume", "open"]
             },
             { "type": "number" }
           ]
