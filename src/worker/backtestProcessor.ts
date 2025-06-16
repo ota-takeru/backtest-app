@@ -165,11 +165,18 @@ export class BacktestProcessor {
       const trades: TradeRow[] = rawResults
         .filter((r) => r.type === "trade_log")
         .map((r) => ({
-          date: r.date,
+          id: r.id,
+          code: r.code,
           side: r.side,
-          price: r.price,
-          quantity: r.quantity,
+          entryDate: r.entryDate,
+          exitDate: r.exitDate,
+          qty: r.qty,
+          entryPx: r.entryPx,
+          exitPx: r.exitPx,
+          slippageBp: r.slippageBp,
           pnl: r.pnl,
+          pnlPct: r.pnlPct,
+          duration: r.duration,
         }));
 
       // 警告メッセージの抽出
@@ -227,7 +234,11 @@ export class BacktestProcessor {
 
     // トレードの妥当性チェック
     const invalidTrades = results.trades.filter(
-      (trade) => typeof trade.price !== "number" || isNaN(trade.price)
+      (trade) =>
+        typeof trade.entryPx !== "number" ||
+        isNaN(trade.entryPx) ||
+        typeof trade.exitPx !== "number" ||
+        isNaN(trade.exitPx)
     );
     if (invalidTrades.length > 0) {
       issues.push(`${invalidTrades.length}件の無効なトレードデータがあります`);
