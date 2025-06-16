@@ -10,6 +10,7 @@ const identifierValueSchema = z.enum([
   "low",
   "close",
   "volume",
+  "open",
 ]);
 const functionNameSchema = z.enum(["ma", "rsi", "atr"]);
 const binaryOperatorSchema = z.enum([">", "<", ">=", "<=", "==", "!="]);

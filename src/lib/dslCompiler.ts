@@ -15,6 +15,7 @@ const ALLOWED_COLUMNS = [
   "high",
   "low",
   "close",
+  "open",
   "volume",
 ] as const;
 
